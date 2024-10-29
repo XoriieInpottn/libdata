@@ -18,7 +18,6 @@ from libdata.common import DocReader, DocWriter, ParsedURL
 class JSONLReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("json")
     @DocReader.factory.register("jsonl")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
