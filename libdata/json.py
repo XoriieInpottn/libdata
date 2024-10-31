@@ -39,6 +39,8 @@ class JSONReader(DocReader):
 
         with open(self.path, "rt", encoding=self.encoding) as f:
             self.doc_list = yaml.safe_load(f)
+        if isinstance(self.doc_list, list):
+            raise ValueError("The content should be a list of documents.")
         self.index = None
 
     def __len__(self):
