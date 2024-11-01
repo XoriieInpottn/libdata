@@ -15,9 +15,9 @@ from libdata.common import DocReader, ParsedURL
 class JSONReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("json")
-    @DocReader.factory.register("yaml")
-    @DocReader.factory.register("yml")
+    @DocReader.register("json")
+    @DocReader.register("yaml")
+    @DocReader.register("yml")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)

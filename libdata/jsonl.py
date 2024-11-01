@@ -18,7 +18,7 @@ from libdata.common import DocReader, DocWriter, ParsedURL
 class JSONLReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("jsonl")
+    @DocReader.register("jsonl")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
@@ -67,8 +67,8 @@ class JSONLReader(DocReader):
 class JSONLWriter(DocWriter):
 
     @staticmethod
-    @DocWriter.factory.register("json")
-    @DocWriter.factory.register("jsonl")
+    @DocWriter.register("json")
+    @DocWriter.register("jsonl")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)

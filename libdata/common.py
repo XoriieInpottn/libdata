@@ -9,10 +9,10 @@ __all__ = [
 
 import abc
 import re
-from typing import Any, Dict, Optional, Union
+from ast import literal_eval
+from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import urlparse
 
-from libentry import Factory, literal_eval
 from pydantic import BaseModel, Field
 
 
@@ -47,7 +47,12 @@ class ParsedURL(BaseModel):
                 name, value = param.split("=")
             except ValueError:
                 raise ValueError(f"Invalid url parameter \"{param}\".")
-            params[name] = literal_eval(value)
+
+            try:
+                value = literal_eval(value)
+            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                pass
+            params[name] = value
 
         return ParsedURL(
             scheme=parsed.scheme,
@@ -66,17 +71,31 @@ class ParsedURL(BaseModel):
 class DocReader(abc.ABC):
     """Abstract class for document readers."""
 
-    factory = Factory("DocReader")
+    factory = {}
 
-    @staticmethod
-    def from_url(url: Union[str, ParsedURL]) -> "DocReader":
+    @classmethod
+    def register(cls, name: str, fn: Callable = None):
+        if fn is not None:
+            if name in cls.factory:
+                raise RuntimeError(f"Duplicated subclass \"{name}\".")
+            cls.factory[name] = fn
+        else:
+            def _register(_fn):
+                assert _fn is not None
+                cls.register(name, _fn)
+                return _fn
+
+            return _register
+
+    @classmethod
+    def from_url(cls, url: Union[str, ParsedURL]) -> "DocReader":
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
 
         if url.scheme not in DocReader.factory:
             raise ValueError(f"Unsupported type \"{url.scheme}\".")
 
-        return DocReader.factory.build(url.scheme, url=url)
+        return cls.factory[url.scheme](url=url)
 
     def __iter__(self):
         return (self[idx] for idx in range(len(self)))
@@ -103,17 +122,31 @@ class DocReader(abc.ABC):
 class DocWriter(abc.ABC):
     """Abstract class for document writers."""
 
-    factory = Factory("DocWriter")
+    factory = {}
 
-    @staticmethod
-    def from_url(url: Union[str, ParsedURL]) -> "DocWriter":
+    @classmethod
+    def register(cls, name: str, fn: Callable = None):
+        if fn is not None:
+            if name in cls.factory:
+                raise RuntimeError(f"Duplicated subclass \"{name}\".")
+            cls.factory[name] = fn
+        else:
+            def _register(_fn):
+                assert _fn is not None
+                cls.register(name, _fn)
+                return _fn
+
+            return _register
+
+    @classmethod
+    def from_url(cls, url: Union[str, ParsedURL]) -> "DocWriter":
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
 
         if url.scheme not in DocWriter.factory:
             raise ValueError(f"Unsupported type \"{url.scheme}\".")
 
-        return DocWriter.factory.build(url.scheme, url=url)
+        return cls.factory[url.scheme](url=url)
 
     def __del__(self):
         self.close()

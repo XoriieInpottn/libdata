@@ -17,8 +17,8 @@ from libdata.common import DocReader, DocWriter, ParsedURL
 class YAMLDirReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("yamldir")
-    @DocReader.factory.register("ymldir")
+    @DocReader.register("yamldir")
+    @DocReader.register("ymldir")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
@@ -84,8 +84,8 @@ class YAMLDirReader(DocReader):
 class YAMLDirWriter(DocWriter):
 
     @staticmethod
-    @DocWriter.factory.register("yamldir")
-    @DocWriter.factory.register("ymldir")
+    @DocWriter.register("yamldir")
+    @DocWriter.register("ymldir")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)

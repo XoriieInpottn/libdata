@@ -16,7 +16,7 @@ from libdata.common import DocReader, DocWriter, ParsedURL
 class MySQLReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("mysql")
+    @DocReader.register("mysql")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
@@ -106,7 +106,7 @@ class MySQLReader(DocReader):
 class MySQLWriter(DocWriter):
 
     @staticmethod
-    @DocWriter.factory.register("mysql")
+    @DocWriter.register("mysql")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)

@@ -16,7 +16,7 @@ from libdata.common import DocReader, DocWriter, ParsedURL
 class JSONDirReader(DocReader):
 
     @staticmethod
-    @DocReader.factory.register("jsondir")
+    @DocReader.register("jsondir")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)
@@ -82,7 +82,7 @@ class JSONDirReader(DocReader):
 class JSONDirWriter(DocWriter):
 
     @staticmethod
-    @DocWriter.factory.register("jsondir")
+    @DocWriter.register("jsondir")
     def from_url(url: Union[str, ParsedURL]):
         if not isinstance(url, ParsedURL):
             url = ParsedURL.from_string(url)

@@ -4,25 +4,25 @@ __author__ = "xi"
 
 from setuptools import setup
 
-if __name__ == '__main__':
-    with open('README.md') as file:
+if __name__ == "__main__":
+    with open("README.md") as file:
         long_description = file.read()
     setup(
-        name='libdata',
+        name="libdata",
         packages=[
-            'libdata',
+            "libdata",
         ],
-        version='0.1',
-        description='Unified interface to access data.',
-        long_description_content_type='text/markdown',
+        version="0.2",
+        description="Unified interface to access data.",
+        long_description_content_type="text/markdown",
         long_description=long_description,
-        license='MIT',
-        author='xi',
-        author_email='gylv@mail.ustc.edu.cn',
-        url='https://github.com/XoriieInpottn/libdata',
-        platforms='any',
+        license="MIT",
+        author="xi",
+        author_email="gylv@mail.ustc.edu.cn",
+        url="https://github.com/XoriieInpottn/libdata",
+        platforms="any",
         classifiers=[
-            'Programming Language :: Python :: 3',
+            "Programming Language :: Python :: 3",
         ],
         include_package_data=True,
         zip_safe=True,
@@ -30,6 +30,5 @@ if __name__ == '__main__':
             "pydantic",
             "tqdm",
             "PyYAML",
-            "libentry",
         ]
     )
