@@ -5,6 +5,7 @@ __all__ = [
     "JSONReader",
 ]
 
+import json
 from typing import Union
 
 import yaml
@@ -38,9 +39,12 @@ class JSONReader(DocReader):
         self.key_field = key_field
 
         with open(self.path, "rt", encoding=self.encoding) as f:
-            self.doc_list = yaml.safe_load(f)
-        if isinstance(self.doc_list, list):
-            raise ValueError("The content should be a list of documents.")
+            self.doc_list = json.load(f) if path.endswith(".json") else yaml.safe_load(f)
+        if not isinstance(self.doc_list, list):
+            raise ValueError(
+                f"The content should be a list of documents. "
+                f"Expect \"list\", got \"{type(self.doc_list)}\"."
+            )
         self.index = None
 
     def __len__(self):
