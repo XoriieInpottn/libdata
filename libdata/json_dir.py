@@ -95,7 +95,7 @@ class JSONDirWriter(DocWriter):
     def __init__(
             self,
             dir_path: str,
-            id_field: str = "id",
+            key_field: str = "id",
             encoding: str = "UTF-8",
             indent: int = 2
     ) -> None:
@@ -104,14 +104,14 @@ class JSONDirWriter(DocWriter):
         if not os.path.isdir(dir_path):
             raise ValueError(f"\"{dir_path}\" should be a directory.")
         self.dir_path = dir_path
-        self.id_field = id_field
+        self.key_field = key_field
         self.encoding = encoding
         self.indent = indent
 
     def write(self, doc):
-        _id = doc.get(self.id_field)
+        _id = doc.get(self.key_field)
         if _id is None:
-            raise ValueError(f"The input document doesn't contain an id field (\"{self.id_field}\").")
+            raise ValueError(f"The input document doesn't contain an id field (\"{self.key_field}\").")
         file_path = os.path.join(self.dir_path, _id + ".json")
         with open(file_path, "wt", encoding=self.encoding) as f:
             f.write(json.dumps(doc, indent=self.indent))
