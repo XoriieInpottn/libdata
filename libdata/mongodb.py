@@ -174,7 +174,7 @@ class MongoWriter(DocWriter, LazyClient):
             username: Optional[str] = None,
             password: Optional[str] = None,
             auth_db: str = "admin",
-            buffer_size: int = 100
+            buffer_size: int = 512
     ):
         super().__init__(
             database=database,
@@ -191,7 +191,7 @@ class MongoWriter(DocWriter, LazyClient):
     def write(self, doc):
         if self.buffer_size > 0:
             self.buffer.append(doc)
-            if len(self.buffer) > 100:
+            if len(self.buffer) > self.buffer_size:
                 conn = self.get_connection()
                 coll = conn[self.database][self.collection]
                 coll.insert_many(self.buffer)
