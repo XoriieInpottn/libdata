@@ -6,9 +6,8 @@ __all__ = [
     "MongoWriter",
 ]
 
-from typing import Optional, Union
-
 from tqdm import tqdm
+from typing import Optional, Union
 
 from libdata.common import DocReader, DocWriter, ParsedURL
 
@@ -108,12 +107,13 @@ class MongoReader(DocReader, LazyClient):
         self.cache = {}
 
     def _fetch_ids(self):
+        id_list = []
         with self.get_connection() as conn:
             coll = conn[self.database][self.collection]
-            id_list = []
             for doc in tqdm(coll.find({}, {'_id': 1}), leave=False):
                 id_list.append(doc["_id"])
-            return id_list
+        self._conn = None
+        return id_list
 
     def __len__(self):
         return len(self.id_list)
