@@ -48,7 +48,11 @@ class LazyClient:
 
     def close(self):
         if hasattr(self, "_conn") and self._conn is not None:
-            self._conn.close()
+            # noinspection PyBroadException
+            try:
+                self._conn.close()
+            except:
+                pass
             self._conn = None
 
     def __del__(self):
