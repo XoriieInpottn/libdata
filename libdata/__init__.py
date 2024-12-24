@@ -7,3 +7,4 @@ from libdata.json_dir import *
 from libdata.yaml_dir import *
 from libdata.mongodb import *
 from libdata.mysql import *
+from libdata.milvus import *

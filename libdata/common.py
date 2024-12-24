@@ -5,6 +5,7 @@ __all__ = [
     "ParsedURL",
     "DocReader",
     "DocWriter",
+    "LazyClient",
 ]
 
 import abc
@@ -164,3 +165,33 @@ class DocWriter(abc.ABC):
     @abc.abstractmethod
     def close(self):
         pass
+
+
+class LazyClient:
+
+    def __init__(self):
+        self.__client = None
+
+    @property
+    def client(self):
+        if self.__client is None:
+            self.__client = self._connect()
+        return self.__client
+
+    def close(self):
+        if hasattr(self, "__client") and self.__client is not None:
+            self._disconnect(self.__client)
+            self.__client = None
+
+    # noinspection PyBroadException
+    def __del__(self):
+        try:
+            self.close()
+        except:
+            pass
+
+    def _connect(self):
+        raise NotImplementedError()
+
+    def _disconnect(self, client):
+        raise NotImplementedError()
