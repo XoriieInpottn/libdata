@@ -5,12 +5,15 @@ __all__ = [
     "LazyMilvusClient",
 ]
 
+from collections import deque
+from threading import Lock
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
 from libdata.common import LazyClient, ParsedURL
 
+DEFAULT_CONN_POOL_SIZE = 16
 DEFAULT_VARCHAR_LENGTH = 65536
 DEFAULT_ID_LENGTH = 256
 DEFAULT_INDEX_CONFIG = {
@@ -52,6 +55,9 @@ class LazyMilvusClient(LazyClient):
             **url.params
         )
 
+    pool = deque()
+    pool_lock = Lock()
+
     def __init__(
             self,
             collection: str,
@@ -74,6 +80,9 @@ class LazyMilvusClient(LazyClient):
 
     # noinspection PyPackageRequirements
     def _connect(self):
+        with self.pool_lock:
+            if len(self.pool) > 0:
+                return self.pool.pop()
         from pymilvus import MilvusClient
         return MilvusClient(
             f"http://{self.hostname}:{self.port}",
@@ -84,6 +93,10 @@ class LazyMilvusClient(LazyClient):
         )
 
     def _disconnect(self, client):
+        with self.pool_lock:
+            if len(self.pool) < DEFAULT_CONN_POOL_SIZE:
+                self.pool.append(client)
+                return
         client.close()
 
     def exists(self, timeout: Optional[float] = None) -> bool:
@@ -208,7 +221,7 @@ class LazyMilvusClient(LazyClient):
     def search(
             self,
             field: str,
-            vector: Union[List[list], list, np.ndarray],
+            data: Union[List[list], list, np.ndarray],
             filter: str = "",
             limit: int = 10,
             output_fields: Optional[List[str]] = None,
@@ -218,18 +231,18 @@ class LazyMilvusClient(LazyClient):
         if not self.client.has_collection(self.collection_name):
             return []
 
-        if isinstance(vector, np.ndarray):
-            if len(vector.shape) == 1:
-                vector = [vector.tolist()]
+        if isinstance(data, np.ndarray):
+            if len(data.shape) == 1:
+                data = [data.tolist()]
             else:
-                vector = vector.tolist()
-        elif isinstance(vector, list):
-            if not isinstance(vector[0], list):
-                vector = [vector]
+                data = data.tolist()
+        elif isinstance(data, list):
+            if not isinstance(data[0], list):
+                data = [data]
 
         response = self.client.search(
             self.collection_name,
-            vector,
+            data,
             filter=filter,
             limit=limit,
             output_fields=output_fields,

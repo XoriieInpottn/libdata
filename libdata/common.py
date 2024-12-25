@@ -170,18 +170,18 @@ class DocWriter(abc.ABC):
 class LazyClient:
 
     def __init__(self):
-        self.__client = None
+        self._client = None
 
     @property
     def client(self):
-        if self.__client is None:
-            self.__client = self._connect()
-        return self.__client
+        if self._client is None:
+            self._client = self._connect()
+        return self._client
 
     def close(self):
-        if hasattr(self, "__client") and self.__client is not None:
-            self._disconnect(self.__client)
-            self.__client = None
+        if hasattr(self, "_client") and self._client is not None:
+            self._disconnect(self._client)
+            self._client = None
 
     # noinspection PyBroadException
     def __del__(self):
