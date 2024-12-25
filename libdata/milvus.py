@@ -11,6 +11,21 @@ import numpy as np
 
 from libdata.common import LazyClient, ParsedURL
 
+DEFAULT_VARCHAR_LENGTH = 65536
+DEFAULT_ID_LENGTH = 256
+DEFAULT_INDEX_CONFIG = {
+    "AUTOINDEX": {
+        "index_type": "AUTOINDEX",
+        "metric_type": "IP",
+        "params": {}
+    },
+    "HNSW": {
+        "index_type": "HNSW",
+        "metric_type": "IP",
+        "params": {"M": 8, "efConstruction": 64}
+    }
+}
+
 
 class LazyMilvusClient(LazyClient):
 
@@ -57,6 +72,7 @@ class LazyMilvusClient(LazyClient):
         self.password = password
         self.kwargs = kwargs
 
+    # noinspection PyPackageRequirements
     def _connect(self):
         from pymilvus import MilvusClient
         return MilvusClient(
@@ -70,79 +86,129 @@ class LazyMilvusClient(LazyClient):
     def _disconnect(self, client):
         client.close()
 
+    def exists(self, timeout: Optional[float] = None) -> bool:
+        return self.client.has_collection(self.collection_name, timeout=timeout)
+
+    # noinspection PyPackageRequirements
     def create(
             self,
             ref_doc: Dict[str, Any],
             id_field: str = "id",
-            auto_id: bool = True,
             dynamic_field: bool = True,
             dense_index: Union[str, Dict] = "AUTOINDEX",
+            timeout: Optional[float] = None
     ):
         from pymilvus import DataType
         from pymilvus.orm.types import infer_dtype_bydata
 
-        if self.client.has_collection(self.collection_name):
-            return
+        if id_field not in ref_doc:
+            # ID field not given in the ref_doc means the collection need to use auto_id mode.
+            schema = self.client.create_schema(auto_id=True, enable_dynamic_field=dynamic_field)
+            schema.add_field(field_name=id_field, datatype=DataType.INT64, is_primary=True)
+        else:
+            schema = self.client.create_schema(auto_id=False, enable_dynamic_field=dynamic_field)
+            id_value = ref_doc[id_field]
+            id_dtype = infer_dtype_bydata(id_value)
+            if id_dtype is DataType.INT64:
+                schema.add_field(field_name=id_field, datatype=DataType.INT64, is_primary=True)
+            elif id_dtype is DataType.VARCHAR:
+                schema.add_field(field_name=id_field, datatype=DataType.VARCHAR, is_primary=True, max_length=128)
+            else:
+                raise TypeError(f"Invalid id dtype \"{id_dtype}\". Should be one of INT64 or VARCHAR().")
 
-        default_index_params = {
-            "AUTOINDEX": {
-                "index_type": "AUTOINDEX",
-                "metric_type": "IP",
-                "params": {}
-            },
-            "HNSW": {
-                "index_type": "HNSW",
-                "metric_type": "IP",
-                "params": {"M": 8, "efConstruction": 64}
-            }
-        }
-        schema = self.client.create_schema(auto_id=auto_id, enable_dynamic_field=dynamic_field)
         index_params = self.client.prepare_index_params()
-
-        schema.add_field(field_name=id_field, datatype=DataType.INT64, is_primary=True)
         index_params.add_index(id_field)
 
-        for k, v in ref_doc.items():
-            dtype = infer_dtype_bydata(v)
+        for field, value in ref_doc.items():
+            if field == id_field:
+                # ID field is already added.
+                continue
+            dtype = infer_dtype_bydata(value)
             kwargs = {}
             if dtype is DataType.UNKNOWN:
-                raise TypeError(f"Unsupported data type {type(v)}.")
+                raise TypeError(f"Unsupported data type {type(value)}.")
             elif dtype is DataType.VARCHAR:
                 kwargs["max_length"] = 65535
             elif dtype in {DataType.FLOAT_VECTOR, DataType.FLOAT16_VECTOR, DataType.BFLOAT16_VECTOR}:
-                kwargs["dim"] = len(v)
+                kwargs["dim"] = len(value)
                 if isinstance(dense_index, str):
-                    dense_index = default_index_params[dense_index]
+                    dense_index = DEFAULT_INDEX_CONFIG[dense_index]
                 index_params.add_index(
-                    field_name=k,
+                    field_name=field,
                     index_type=dense_index["index_type"],
                     metric_type=dense_index["metric_type"],
                     **dense_index["params"]
                 )
             elif dtype is DataType.SPARSE_FLOAT_VECTOR:
                 raise NotImplementedError()
-            schema.add_field(field_name=k, datatype=dtype, **kwargs)
+            schema.add_field(field_name=field, datatype=dtype, **kwargs)
 
         self.client.create_collection(
             collection_name=self.collection_name,
             schema=schema,
             index_params=index_params,
+            timeout=timeout
         )
 
-    def drop(self):
-        self.client.drop_collection(self.collection_name)
+    def drop(self, timeout: Optional[float] = None):
+        self.client.drop_collection(self.collection_name, timeout=timeout)
 
-    def insert(self, doc: Dict[str, Any]):
-        self.create(doc)
-        return self.client.insert(self.collection_name, doc)
+    def insert(self, docs: Union[dict, List[dict]], timeout: Optional[float] = None) -> dict:
+        if not self.exists(timeout=timeout):
+            if isinstance(docs, List):
+                if len(docs) == 0:
+                    return {"insert_count": 0, "ids": []}
+                ref_doc = docs[0]
+            else:
+                ref_doc = docs
+            self.create(ref_doc)
+        return self.client.insert(self.collection_name, docs)
 
-    def delete(self, ids):
-        self.client.delete(self.collection_name, ids)
+    def upsert(self, docs: Union[Dict, List[Dict]], timeout: Optional[float] = None) -> dict:
+        if not self.exists(timeout=timeout):
+            if isinstance(docs, List):
+                if len(docs) == 0:
+                    return {"upsert_count": 0, "ids": []}
+                ref_doc = docs[0]
+            else:
+                ref_doc = docs
+            self.create(ref_doc)
+        return self.client.upsert(
+            collection_name=self.collection_name,
+            data=docs,
+            timeout=timeout
+        )
 
+    # noinspection PyShadowingBuiltins
+    def delete(
+            self,
+            ids: Optional[Union[list, str, int]] = None,
+            filter: Optional[str] = None,
+            timeout: Optional[float] = None,
+    ) -> dict:
+        return self.client.delete(self.collection_name, ids=ids, filter=filter, timeout=timeout)
+
+    # noinspection PyShadowingBuiltins
+    def query(
+            self,
+            filter: str = "",
+            ids: Optional[Union[List, str, int]] = None,
+            output_fields: Optional[List[str]] = None,
+            timeout: Optional[float] = None,
+    ) -> List[dict]:
+        return self.client.query(
+            self.collection_name,
+            filter=filter,
+            output_fields=output_fields,
+            timeout=timeout,
+            ids=ids,
+        )
+
+    # noinspection PyShadowingBuiltins
     def search(
             self,
             field: str,
-            data: Union[List[list], list, np.ndarray],
+            vector: Union[List[list], list, np.ndarray],
             filter: str = "",
             limit: int = 10,
             output_fields: Optional[List[str]] = None,
@@ -152,18 +218,18 @@ class LazyMilvusClient(LazyClient):
         if not self.client.has_collection(self.collection_name):
             return []
 
-        if isinstance(data, np.ndarray):
-            if len(data.shape) == 1:
-                data = [data.tolist()]
+        if isinstance(vector, np.ndarray):
+            if len(vector.shape) == 1:
+                vector = [vector.tolist()]
             else:
-                data = data.tolist()
-        elif isinstance(data, list):
-            if not isinstance(data[0], list):
-                data = [data]
+                vector = vector.tolist()
+        elif isinstance(vector, list):
+            if not isinstance(vector[0], list):
+                vector = [vector]
 
         response = self.client.search(
             self.collection_name,
-            data,
+            vector,
             filter=filter,
             limit=limit,
             output_fields=output_fields,
