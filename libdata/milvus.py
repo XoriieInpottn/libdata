@@ -5,13 +5,11 @@ __all__ = [
     "LazyMilvusClient",
 ]
 
-from collections import deque
-from threading import Lock
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
-from libdata.common import LazyClient, ParsedURL
+from libdata.common import ConnectionPool, LazyClient, ParsedURL
 
 DEFAULT_CONN_POOL_SIZE = 16
 DEFAULT_VARCHAR_LENGTH = 65536
@@ -55,8 +53,7 @@ class LazyMilvusClient(LazyClient):
             **url.params
         )
 
-    pool = deque()
-    pool_lock = Lock()
+    client_pool = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
 
     def __init__(
             self,
@@ -80,24 +77,21 @@ class LazyMilvusClient(LazyClient):
 
     # noinspection PyPackageRequirements
     def _connect(self):
-        with self.pool_lock:
-            if len(self.pool) > 0:
-                return self.pool.pop()
-        from pymilvus import MilvusClient
-        return MilvusClient(
-            f"http://{self.hostname}:{self.port}",
-            user=self.username,
-            password=self.password,
-            db_name=self.database,
-            **self.kwargs
-        )
+        client = self.client_pool.get()
+        if client is None:
+            from pymilvus import MilvusClient
+            client = MilvusClient(
+                f"http://{self.hostname}:{self.port}",
+                user=self.username,
+                password=self.password,
+                db_name=self.database,
+                **self.kwargs
+            )
+        return client
 
     def _disconnect(self, client):
-        with self.pool_lock:
-            if len(self.pool) < DEFAULT_CONN_POOL_SIZE:
-                self.pool.append(client)
-                return
-        client.close()
+        if self.client_pool.put(client) is not None:
+            client.close()
 
     def exists(self, timeout: Optional[float] = None) -> bool:
         return self.client.has_collection(self.collection_name, timeout=timeout)

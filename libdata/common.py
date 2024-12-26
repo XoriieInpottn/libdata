@@ -6,11 +6,14 @@ __all__ = [
     "DocReader",
     "DocWriter",
     "LazyClient",
+    "ConnectionPool",
 ]
 
 import abc
 import re
 from ast import literal_eval
+from collections import deque
+from threading import Lock
 from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import urlparse
 
@@ -195,3 +198,33 @@ class LazyClient:
 
     def _disconnect(self, client):
         raise NotImplementedError()
+
+
+class ConnectionPool:
+
+    def __init__(self, max_size: int):
+        self._max_size = max_size
+        self.pool = deque()
+        self.lock = Lock()
+
+    @property
+    def max_size(self):
+        return self._max_size
+
+    @max_size.setter
+    def max_size(self, value: int):
+        with self.lock:
+            self._max_size = value
+
+    def get(self) -> Optional[Any]:
+        with self.lock:
+            if len(self.pool) > 0:
+                return self.pool.pop()
+            return None
+
+    def put(self, conn) -> Optional[Any]:
+        with self.lock:
+            if len(self.pool) < self._max_size:
+                self.pool.append(conn)
+                return None
+            return conn
