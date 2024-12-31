@@ -12,7 +12,7 @@ if __name__ == "__main__":
         packages=[
             "libdata",
         ],
-        version="0.7",
+        version="0.8",
         description="Unified interface to access data.",
         long_description_content_type="text/markdown",
         long_description=long_description,
@@ -30,6 +30,7 @@ if __name__ == "__main__":
             "pydantic",
             "tqdm",
             "PyYAML",
-            "numpy"
+            "numpy",
+            "scipy"
         ]
     )
