@@ -2,14 +2,132 @@
 
 __author__ = "xi"
 __all__ = [
+    "LazyMongoClient",
     "MongoReader",
     "MongoWriter",
 ]
 
-from tqdm import tqdm
-from typing import Optional, Union
+from typing import List, Optional, Union
 
-from libdata.common import DocReader, DocWriter, ParsedURL
+from tqdm import tqdm
+
+from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient, ParsedURL
+
+DEFAULT_CONN_POOL_SIZE = 16
+
+
+class LazyMongoClient(LazyClient):
+
+    @classmethod
+    def from_url(cls, url: Union[str, ParsedURL]):
+        if not isinstance(url, ParsedURL):
+            url = ParsedURL.from_string(url)
+
+        if url.hostname is None:
+            url.hostname = "localhost"
+        if url.port is None:
+            url.port = 27017
+        if url.database is None:
+            raise ValueError("Database should be given in the URL.")
+        if url.table is None:
+            raise ValueError("Collection name should be given in the URL.")
+        return cls(
+            collection=url.table,
+            database=url.database,
+            hostname=url.hostname,
+            port=url.port,
+            username=url.username,
+            password=url.password,
+            **url.params
+        )
+
+    def __init__(
+            self,
+            collection: str,
+            *,
+            database: str = "default",
+            hostname: str = "localhost",
+            port: int = 27017,
+            username: Optional[str] = None,
+            password: Optional[str] = None,
+            auth_db: str = "admin",
+            buffer_size: int = 1000,
+            **kwargs
+    ):
+        super().__init__()
+        self.collection_name = collection
+        self.database = database
+        self.hostname = hostname
+        self.port = port
+        self.username = username
+        self.password = password
+        self.auth_db = auth_db
+        self.buffer_size = buffer_size
+        self.kwargs = kwargs
+
+        self.buffer = []
+
+    client_pool = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+
+    # noinspection PyPackageRequirements
+    def _connect(self):
+        client = self.client_pool.get()
+        if client is None:
+            from pymongo import MongoClient
+            client = MongoClient(
+                host=self.hostname,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                authSource=self.auth_db
+            )
+        return client
+
+    def _disconnect(self, client):
+        if self.client_pool.put(client) is not None:
+            client.close()
+
+    def insert(self, docs: Union[dict, List[dict]], flush=True):
+        return self.insert_many(docs, flush) if isinstance(docs, List) else self.insert_one(docs, flush)
+
+    def insert_one(self, doc: dict, flush=True):
+        coll = self.client[self.database][self.collection_name]
+        if flush:
+            if len(self.buffer) > 0:
+                self.buffer.append(doc)
+                coll.insert_many(self.buffer)
+                self.buffer.clear()
+            else:
+                coll.insert_one(doc)
+        else:
+            self.buffer.append(doc)
+            if len(self.buffer) > self.buffer_size:
+                coll.insert_many(self.buffer)
+                self.buffer.clear()
+
+    def insert_many(self, docs: List[dict], flush: True):
+        coll = self.client[self.database][self.collection_name]
+        self.buffer.extend(docs)
+        if flush or len(self.buffer) > self.buffer_size:
+            coll.insert_many(self.buffer)
+            self.buffer.clear()
+
+    def flush(self):
+        if len(self.buffer) != 0:
+            coll = self.client[self.database][self.collection_name]
+            coll.insert_many(self.buffer)
+            self.buffer.clear()
+
+    def count(self):
+        return self.client[self.database][self.collection_name].count()
+
+    def find(self, query: Optional[dict] = None):
+        coll = self.client[self.database][self.collection_name]
+        return coll.find(query)
+
+    def find_one(self, query: Optional[dict] = None):
+        coll = self.client[self.database][self.collection_name]
+        return coll.find_one(query)
 
 
 class LazyClient:
