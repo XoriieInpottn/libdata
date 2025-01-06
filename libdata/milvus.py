@@ -82,7 +82,8 @@ class LazyMilvusClient(LazyClient):
 
     # noinspection PyPackageRequirements
     def _connect(self):
-        client = self.client_pool.get()
+        key = (self.hostname, self.port, self.username, self.password, self.database)
+        client = self.client_pool.get(key)
         if client is None:
             from pymilvus import MilvusClient
             client = MilvusClient(
@@ -95,7 +96,8 @@ class LazyMilvusClient(LazyClient):
         return client
 
     def _disconnect(self, client):
-        if self.client_pool.put(client) is not None:
+        key = (self.hostname, self.port, self.username, self.password, self.database)
+        if self.client_pool.put(key, client) is not None:
             client.close()
 
     def exists(self, timeout: Optional[float] = None) -> bool:

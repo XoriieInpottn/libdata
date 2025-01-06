@@ -12,7 +12,7 @@ __all__ = [
 import abc
 import re
 from ast import literal_eval
-from collections import deque
+from collections import defaultdict, deque
 from threading import Lock
 from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import urlparse
@@ -210,7 +210,7 @@ class ConnectionPool:
 
     def __init__(self, max_size: int):
         self._max_size = max_size
-        self.pool = deque()
+        self.pools = defaultdict(deque)
         self.lock = Lock()
 
     @property
@@ -222,15 +222,17 @@ class ConnectionPool:
         with self.lock:
             self._max_size = value
 
-    def get(self) -> Optional[Any]:
+    def get(self, key) -> Optional[Any]:
         with self.lock:
-            if len(self.pool) > 0:
-                return self.pool.pop()
+            pool = self.pools[key]
+            if len(pool) > 0:
+                return pool.pop()
             return None
 
-    def put(self, conn) -> Optional[Any]:
+    def put(self, key, conn) -> Optional[Any]:
         with self.lock:
-            if len(self.pool) < self._max_size:
-                self.pool.append(conn)
+            pool = self.pools[key]
+            if len(pool) < self._max_size:
+                pool.append(conn)
                 return None
             return conn

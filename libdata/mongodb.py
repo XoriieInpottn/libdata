@@ -71,7 +71,8 @@ class LazyMongoClient(LazyClient):
 
     # noinspection PyPackageRequirements
     def _connect(self):
-        client = self.client_pool.get()
+        key = (self.hostname, self.port, self.username, self.password)
+        client = self.client_pool.get(key)
         if client is None:
             from pymongo import MongoClient
             client = MongoClient(
@@ -84,7 +85,8 @@ class LazyMongoClient(LazyClient):
         return client
 
     def _disconnect(self, client):
-        if self.client_pool.put(client) is not None:
+        key = (self.hostname, self.port, self.username, self.password)
+        if self.client_pool.put(key, client) is not None:
             client.close()
 
     def insert(self, docs: Union[dict, List[dict]], flush=True):
