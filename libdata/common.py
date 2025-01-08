@@ -14,7 +14,7 @@ import re
 from ast import literal_eval
 from collections import defaultdict, deque
 from threading import Lock
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Generic, Optional, TypeVar, Union
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -170,13 +170,16 @@ class DocWriter(abc.ABC):
         pass
 
 
-class LazyClient:
+_Client = TypeVar("_Client")
+
+
+class LazyClient(Generic[_Client]):
 
     def __init__(self):
         self._client = None
 
     @property
-    def client(self):
+    def client(self) -> _Client:
         if self._client is None:
             self._client = self._connect()
         return self._client
