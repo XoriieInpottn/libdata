@@ -13,7 +13,6 @@ from scipy.sparse import csr_array
 
 from libdata.common import ConnectionPool, LazyClient, ParsedURL
 
-DEFAULT_CONN_POOL_SIZE = 16
 DEFAULT_VARCHAR_LENGTH = 65535
 DEFAULT_ID_LENGTH = 256
 DEFAULT_INDEX_CONFIG = {
@@ -58,7 +57,8 @@ class LazyMilvusClient(LazyClient):
             **url.params
         )
 
-    client_pool = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+    DEFAULT_CONN_POOL_SIZE = 16
+    DEFAULT_CONN_POOL = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
 
     def __init__(
             self,
@@ -69,6 +69,7 @@ class LazyMilvusClient(LazyClient):
             port: int = 19530,
             username: Optional[str] = None,
             password: Optional[str] = None,
+            connection_pool: Optional[ConnectionPool] = None,
             **kwargs
     ):
         super().__init__()
@@ -80,10 +81,12 @@ class LazyMilvusClient(LazyClient):
         self.password = password
         self.kwargs = kwargs
 
+        self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
+        self._conn_key = (self.hostname, self.port, self.username, self.database)
+
     # noinspection PyPackageRequirements
     def _connect(self):
-        key = (self.hostname, self.port, self.username, self.password, self.database)
-        client = self.client_pool.get(key)
+        client = self._conn_pool.get(self._conn_key)
         if client is None:
             from pymilvus import MilvusClient
             client = MilvusClient(
@@ -96,8 +99,8 @@ class LazyMilvusClient(LazyClient):
         return client
 
     def _disconnect(self, client):
-        key = (self.hostname, self.port, self.username, self.password, self.database)
-        if self.client_pool.put(key, client) is not None:
+        client = self._conn_pool.put(self._conn_key, client)
+        if client is not None:
             client.close()
 
     def exists(self, timeout: Optional[float] = None) -> bool:

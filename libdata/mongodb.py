@@ -13,8 +13,6 @@ from tqdm import tqdm
 
 from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient, ParsedURL
 
-DEFAULT_CONN_POOL_SIZE = 16
-
 
 class LazyMongoClient(LazyClient):
 
@@ -41,6 +39,9 @@ class LazyMongoClient(LazyClient):
             **url.params
         )
 
+    DEFAULT_CONN_POOL_SIZE = 16
+    DEFAULT_CONN_POOL = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+
     def __init__(
             self,
             collection: str,
@@ -52,6 +53,7 @@ class LazyMongoClient(LazyClient):
             password: Optional[str] = None,
             auth_db: str = "admin",
             buffer_size: int = 1000,
+            connection_pool: Optional[ConnectionPool] = None,
             **kwargs
     ):
         super().__init__()
@@ -65,14 +67,13 @@ class LazyMongoClient(LazyClient):
         self.buffer_size = buffer_size
         self.kwargs = kwargs
 
+        self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
+        self._conn_key = (self.hostname, self.port, self.username)
         self.buffer = []
-
-    client_pool = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
 
     # noinspection PyPackageRequirements
     def _connect(self):
-        key = (self.hostname, self.port, self.username, self.password)
-        client = self.client_pool.get(key)
+        client = self._conn_pool.get(self._conn_key)
         if client is None:
             from pymongo import MongoClient
             client = MongoClient(
@@ -85,8 +86,8 @@ class LazyMongoClient(LazyClient):
         return client
 
     def _disconnect(self, client):
-        key = (self.hostname, self.port, self.username, self.password)
-        if self.client_pool.put(key, client) is not None:
+        client = self._conn_pool.put(self._conn_key, client)
+        if client is not None:
             client.close()
 
     def insert(self, docs: Union[dict, List[dict]], flush=True):
@@ -156,6 +157,7 @@ class LazyClient:
 
     def get_connection(self):
         if self._conn is None:
+            # noinspection PyPackageRequirements
             from pymongo import MongoClient
             self._conn = MongoClient(
                 host=self.host,
