@@ -8,7 +8,9 @@ __all__ = [
 ]
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
+
+from redis import Redis
 
 from libdata.common import ConnectionPool, LazyClient, ParsedURL
 
@@ -16,7 +18,7 @@ from libdata.common import ConnectionPool, LazyClient, ParsedURL
 class AbstractRedisProxy(ABC):
 
     @abstractmethod
-    def get_client(self, read=False):
+    def get_client(self, read=False) -> Redis:
         pass
 
 
@@ -162,7 +164,7 @@ class LazyRedisClient(StringProxy, ListProxy, HashProxy, ABC):
         return self.get_client(read=False).pipeline(transaction)
 
 
-class LazyRedisStandalone(LazyRedisClient, LazyClient):
+class LazyRedisStandalone(LazyRedisClient, LazyClient[Redis]):
 
     def __init__(
             self,
@@ -186,13 +188,12 @@ class LazyRedisStandalone(LazyRedisClient, LazyClient):
         self._conn_key = (self.hostname, self.port, self.username, self.database)
 
     DEFAULT_CONN_POOL_SIZE = 16
-    DEFAULT_CONN_POOL = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+    DEFAULT_CONN_POOL = ConnectionPool[Redis](DEFAULT_CONN_POOL_SIZE)
 
     def _connect(self):
         client = self._conn_pool.get(self._conn_key)
         if client is None:
             # noinspection PyPackageRequirements
-            from redis import Redis
             client = Redis(
                 host=self.hostname,
                 port=self.port,
@@ -213,7 +214,7 @@ class LazyRedisStandalone(LazyRedisClient, LazyClient):
         return self.client
 
 
-class LazyRedisSentinel(LazyRedisClient, LazyClient):
+class LazyRedisSentinel(LazyRedisClient, LazyClient[Tuple[Redis, Redis]]):
 
     def __init__(
             self,
@@ -237,7 +238,7 @@ class LazyRedisSentinel(LazyRedisClient, LazyClient):
         self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
 
     DEFAULT_CONN_POOL_SIZE = 16
-    DEFAULT_CONN_POOL = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+    DEFAULT_CONN_POOL = ConnectionPool[Tuple[Redis, Redis]](DEFAULT_CONN_POOL_SIZE)
 
     def _connect(self):
         client = self._conn_pool.get(self._conn_key)

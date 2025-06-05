@@ -34,5 +34,6 @@ if __name__ == "__main__":
             "scipy",
             "pymongo",
             "pymilvus",
+            "redis",
         ]
     )
