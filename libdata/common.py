@@ -37,10 +37,16 @@ class ParsedURL(BaseModel):
         parsed = urlparse(url)
 
         # database and table
-        matched = re.search(r"^/(\w+)/(.+)$", parsed.path)
+        matched = re.search(r"^/(?P<db>\w*)(/(?P<tb>.*))?$", parsed.path)
         database, table = None, None
         if matched is not None:
-            database, table = matched.groups()
+            g = matched.groupdict()
+            database = g["db"]
+            if not database:
+                database = None
+            table = g["tb"]
+            if not table:
+                table = None
 
         # params
         params = {}
@@ -83,6 +89,7 @@ class DocReader(abc.ABC):
             if name in cls.factory:
                 raise RuntimeError(f"Duplicated subclass \"{name}\".")
             cls.factory[name] = fn
+            return None
         else:
             def _register(_fn):
                 assert _fn is not None
@@ -134,6 +141,7 @@ class DocWriter(abc.ABC):
             if name in cls.factory:
                 raise RuntimeError(f"Duplicated subclass \"{name}\".")
             cls.factory[name] = fn
+            return None
         else:
             def _register(_fn):
                 assert _fn is not None
@@ -170,16 +178,16 @@ class DocWriter(abc.ABC):
         pass
 
 
-_Client = TypeVar("_Client")
+ClientType = TypeVar("ClientType")
 
 
-class LazyClient(Generic[_Client]):
+class LazyClient(Generic[ClientType]):
 
     def __init__(self):
         self._client = None
 
     @property
-    def client(self) -> _Client:
+    def client(self) -> ClientType:
         if self._client is None:
             self._client = self._connect()
         return self._client
@@ -202,14 +210,17 @@ class LazyClient(Generic[_Client]):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _connect(self):
+    def _connect(self) -> ClientType:
         raise NotImplementedError()
 
-    def _disconnect(self, client):
+    def _disconnect(self, client: ClientType):
         raise NotImplementedError()
 
 
-class ConnectionPool:
+ConnType = TypeVar("ConnType")
+
+
+class ConnectionPool(Generic[ConnType]):
 
     def __init__(self, max_size: int):
         self._max_size = max_size
@@ -225,14 +236,14 @@ class ConnectionPool:
         with self.lock:
             self._max_size = value
 
-    def get(self, key) -> Optional[Any]:
+    def get(self, key) -> Optional[ConnType]:
         with self.lock:
             pool = self.pools[key]
             if len(pool) > 0:
                 return pool.pop()
             return None
 
-    def put(self, key, conn) -> Optional[Any]:
+    def put(self, key, conn: ConnType) -> Optional[ConnType]:
         with self.lock:
             pool = self.pools[key]
             if len(pool) < self._max_size:
