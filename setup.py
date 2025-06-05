@@ -31,6 +31,7 @@ if __name__ == "__main__":
             "tqdm",
             "PyYAML",
             "numpy",
-            "scipy"
+            "scipy",
+            "pymongo",
         ]
     )
