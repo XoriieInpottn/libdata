@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Union
 
 import numpy as np
+from pymilvus import MilvusClient
 from scipy.sparse import csr_array
 
 from libdata.common import ConnectionPool, LazyClient, ParsedURL
@@ -32,7 +33,7 @@ DenseVector = Union[np.ndarray, list]
 SparseVector = Union[csr_array, dict]
 
 
-class LazyMilvusClient(LazyClient):
+class LazyMilvusClient(LazyClient[MilvusClient]):
 
     @classmethod
     def from_url(cls, url: Union[str, ParsedURL]):
@@ -58,7 +59,7 @@ class LazyMilvusClient(LazyClient):
         )
 
     DEFAULT_CONN_POOL_SIZE = 16
-    DEFAULT_CONN_POOL = ConnectionPool(DEFAULT_CONN_POOL_SIZE)
+    DEFAULT_CONN_POOL = ConnectionPool[MilvusClient](DEFAULT_CONN_POOL_SIZE)
 
     def __init__(
             self,
@@ -88,7 +89,6 @@ class LazyMilvusClient(LazyClient):
     def _connect(self):
         client = self._conn_pool.get(self._conn_key)
         if client is None:
-            from pymilvus import MilvusClient
             client = MilvusClient(
                 f"http://{self.hostname}:{self.port}",
                 user=self.username,
@@ -128,7 +128,7 @@ class LazyMilvusClient(LazyClient):
         else:
             schema = self.client.create_schema(auto_id=False, enable_dynamic_field=dynamic_field)
             id_value = ref_doc[id_field]
-            field_kwargs = {"is_primary": True}
+            field_kwargs: Dict[str, Any] = {"is_primary": True}
             if isinstance(id_value, int):
                 field_kwargs["datatype"] = DataType.INT64
             elif isinstance(id_value, str):
