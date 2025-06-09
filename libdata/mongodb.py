@@ -154,6 +154,9 @@ class LazyMongoClient(LazyClient[MongoClient]):
     def count_documents(self, query: Optional[Mapping[str, Any]] = None) -> int:
         return self.get_collection().count_documents(query)
 
+    def distinct(self, key, query: Optional[Mapping[str, Any]] = None):
+        return self.get_collection().distinct(key, query)
+
     def find(
             self,
             query: Optional[Mapping[str, Any]] = None,
