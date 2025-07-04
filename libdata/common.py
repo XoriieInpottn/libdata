@@ -15,7 +15,7 @@ from ast import literal_eval
 from collections import defaultdict, deque
 from threading import Lock
 from typing import Any, Callable, Dict, Generic, Optional, TypeVar, Union
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel, Field
 
@@ -69,7 +69,7 @@ class ParsedURL(BaseModel):
             hostname=parsed.hostname,
             port=parsed.port,
             username=parsed.username,
-            password=parsed.password,
+            password=unquote(parsed.password),
             path=parsed.path,
             query=parsed.query,
             database=database,
