@@ -36,8 +36,8 @@ class LazyMongoClient(LazyClient[MongoClient]):
             url.port = 27017
         if url.database is None:
             raise ValueError("Database should be given in the URL.")
-        if url.table is None:
-            raise ValueError("Collection name should be given in the URL.")
+        # if url.table is None:
+        #     raise ValueError("Collection name should be given in the URL.")
         return cls(
             collection=url.table,
             database=url.database,
@@ -66,7 +66,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
             **kwargs
     ):
         super().__init__()
-        self.collection_name = collection
+        self.collection = collection
         self.database = database
         self.hostname = hostname
         self.port = port
@@ -107,7 +107,9 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
     def get_collection(self) -> Collection:
         if self._coll is None:
-            self._coll = self.get_database().get_collection(self.collection_name)
+            if not self.collection:
+                raise RuntimeError("Collection name should be given.")
+            self._coll = self.get_database().get_collection(self.collection)
         return self._coll
 
     def insert(self, docs: Union[dict, List[dict]], flush=True):
