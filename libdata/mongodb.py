@@ -41,9 +41,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
             connection_pool: Optional[ConnectionPool] = None
     ):
         super().__init__()
-        if isinstance(url, str):
-            url = URL.from_string(url)
-        assert isinstance(url, URL)
+        url = URL.ensure_url(url)
 
         if url.scheme not in {"mongo", "mongodb"}:
             raise ValueError("scheme should be one of {\"mongodb\", \"mongo\"}")
@@ -242,10 +240,7 @@ class MongoReader(DocReader):
             key_field: str = "_id",
             use_cache: bool = False
     ) -> None:
-        if isinstance(url, str):
-            url = URL.from_string(url)
-        assert isinstance(url, URL)
-
+        url = URL.ensure_url(url)
         self.client = LazyMongoClient(url, auth_source=auth_db)
         if url.parameters:
             params = url.parameters

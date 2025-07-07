@@ -197,3 +197,17 @@ class URL(BaseModel):
             buffer.write(quote(self.fragments))
 
         return buffer.getvalue()
+
+    @staticmethod
+    def ensure_url(url: Union["URL", str, bytes]) -> "URL":
+        if isinstance(url, URL):
+            return url
+        elif isinstance(url, str):
+            return URL.from_string(url)
+        elif isinstance(url, bytes):
+            return URL.from_string(url.decode())
+        else:
+            raise TypeError(
+                f"Invalid URL type. "
+                f"Expect URL, str or bytes, got {type(url)}"
+            )
