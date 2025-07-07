@@ -18,6 +18,7 @@ from pymongo.results import DeleteResult, UpdateResult
 from tqdm import tqdm
 
 from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient, ParsedURL
+from libdata.url import URL
 
 
 class LazyMongoClient(LazyClient[MongoClient]):
@@ -26,82 +27,87 @@ class LazyMongoClient(LazyClient[MongoClient]):
     """
 
     @classmethod
-    def from_url(cls, url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if url.hostname is None:
-            url.hostname = "localhost"
-        if url.port is None:
-            url.port = 27017
-        if url.database is None:
-            raise ValueError("Database should be given in the URL.")
-        # if url.table is None:
-        #     raise ValueError("Collection name should be given in the URL.")
-        return cls(
-            collection=url.table,
-            database=url.database,
-            hostname=url.hostname,
-            port=url.port,
-            username=url.username,
-            password=url.password,
-            **url.params
-        )
+    def from_url(cls, url: Union[str, URL]):
+        return cls(url)
 
     DEFAULT_CONN_POOL_SIZE = 16
     DEFAULT_CONN_POOL = ConnectionPool[MongoClient](DEFAULT_CONN_POOL_SIZE)
 
     def __init__(
             self,
-            collection: str,
-            *,
-            database: str = "default",
-            hostname: str = "localhost",
-            port: int = 27017,
-            username: Optional[str] = None,
-            password: Optional[str] = None,
-            auth_db: str = "admin",
+            url: Union[str, URL],
+            auth_source: str = "admin",
             buffer_size: int = 1000,
-            connection_pool: Optional[ConnectionPool] = None,
-            **kwargs
+            connection_pool: Optional[ConnectionPool] = None
     ):
         super().__init__()
-        self.collection = collection
-        self.database = database
-        self.hostname = hostname
-        self.port = port
-        self.username = username
-        self.password = password
-        self.auth_db = auth_db
-        self.buffer_size = buffer_size
-        self.kwargs = kwargs
+        if isinstance(url, str):
+            url = URL.from_string(url)
+        assert isinstance(url, URL)
+
+        if url.scheme not in {"mongo", "mongodb"}:
+            raise ValueError("scheme should be one of {\"mongodb\", \"mongo\"}")
+
+        if url.parameters:
+            params = url.parameters
+            if "auth_source" in params:
+                self.auth_source = params["auth_source"]
+            elif "authSource" in params:
+                self.auth_source = params["authSource"]
+            elif "auth_db" in params:
+                self.auth_source = params["auth_db"]
+            else:
+                self.auth_source = auth_source
+
+            if "buffer_size" in params:
+                self.buffer_size = int(params["buffer_size"])
+            elif "bufferSize" in params:
+                self.buffer_size = int(params["bufferSize"])
+            else:
+                self.buffer_size = buffer_size
+
+        self._conn_url = URL(
+            scheme="mongodb",
+            username=url.username,
+            password=url.password,
+            address=url.address,
+            parameters={"authSource": self.auth_source}
+        ).to_string()
+
+        if url.path:
+            path_list = url.path.strip("/").split("/")
+            if len(path_list) == 1:
+                self.database = path_list[0]
+                self.collection = None
+            elif len(path_list) == 2:
+                self.database = path_list[0]
+                self.collection = path_list[1]
+            else:
+                raise ValueError("path should only contains database and collection.")
+        else:
+            self.database = None
+            self.collection = None
 
         self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
-        self._conn_key = (self.hostname, self.port, self.username)
         self._db = None
         self._coll = None
         self.buffer = []
 
-    # noinspection PyPackageRequirements
     def _connect(self):
-        client = self._conn_pool.get(self._conn_key)
+        client = self._conn_pool.get(self._conn_url)
         if client is None:
-            client = MongoClient(
-                host=self.hostname,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                authSource=self.auth_db
-            )
+            client = MongoClient(self._conn_url)
         return client
 
     def _disconnect(self, client):
-        client = self._conn_pool.put(self._conn_key, client)
+        client = self._conn_pool.put(self._conn_url, client)
         if client is not None:
             client.close()
 
     def get_database(self) -> Database:
         if self._db is None:
+            if not self.collection:
+                raise RuntimeError("Database name should be given.")
             self._db = self.client.get_database(self.database)
         return self._db
 
@@ -226,46 +232,33 @@ class MongoReader(DocReader):
     @staticmethod
     @DocReader.register("mongo")
     @DocReader.register("mongodb")
-    def from_url(url: Union[str, ParsedURL]) -> "MongoReader":
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if not url.scheme in {"mongo", "mongodb"}:
-            raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
-        if url.database is None or url.table is None:
-            raise ValueError(f"Invalid path \"{url.path}\" for mongodb.")
-
-        return MongoReader(
-            host=url.hostname,
-            port=url.port,
-            username=url.username,
-            password=url.password,
-            database=url.database,
-            collection=url.table,
-            **url.params
-        )
+    def from_url(url: Union[str, URL]) -> "MongoReader":
+        return MongoReader(url)
 
     def __init__(
             self,
-            database,
-            collection,
-            host: Optional[str] = None,
-            port: Optional[int] = None,
-            username: Optional[str] = None,
-            password: Optional[str] = None,
+            url: Union[str, URL],
             auth_db: str = "admin",
             key_field: str = "_id",
             use_cache: bool = False
     ) -> None:
-        self.client = LazyMongoClient(
-            collection=collection,
-            database=database,
-            hostname=host,
-            port=port,
-            username=username,
-            password=password,
-            auth_db=auth_db
-        )
+        if isinstance(url, str):
+            url = URL.from_string(url)
+        assert isinstance(url, URL)
+
+        self.client = LazyMongoClient(url, auth_source=auth_db)
+        if url.parameters:
+            params = url.parameters
+            if "key_field" in params:
+                key_field = params["key_field"]
+            elif "keyField" in params:
+                key_field = params["keyField"]
+
+            if "use_cache" in params:
+                use_cache = params["use_cache"].lower() in {"true", "1"}
+            elif "useCache" in params:
+                use_cache = params["useCache"].lower() in {"true", "1"}
+
         self.key_field = key_field
         self.use_cache = use_cache
 
@@ -308,43 +301,17 @@ class MongoWriter(DocWriter):
     @DocWriter.register("mongo")
     @DocWriter.register("mongodb")
     def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if not url.scheme in {"mongo", "mongodb"}:
-            raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
-        if url.database is None or url.table is None:
-            raise ValueError(f"Invalid path \"{url.path}\" for database.")
-
-        return MongoWriter(
-            host=url.hostname,
-            port=url.port,
-            username=url.username,
-            password=url.password,
-            database=url.database,
-            collection=url.table,
-            **url.params
-        )
+        return MongoWriter(url)
 
     def __init__(
             self,
-            database,
-            collection,
-            host: Optional[str] = None,
-            port: Optional[int] = None,
-            username: Optional[str] = None,
-            password: Optional[str] = None,
+            url: Union[str, URL],
             auth_db: str = "admin",
             buffer_size: int = 512
     ):
         self.client = LazyMongoClient(
-            collection=collection,
-            database=database,
-            hostname=host,
-            port=port,
-            username=username,
-            password=password,
-            auth_db=auth_db,
+            url,
+            auth_source=auth_db,
             buffer_size=buffer_size
         )
 

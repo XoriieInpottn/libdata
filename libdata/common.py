@@ -69,7 +69,7 @@ class ParsedURL(BaseModel):
             hostname=parsed.hostname,
             port=parsed.port,
             username=parsed.username,
-            password=unquote(parsed.password),
+            password=unquote(parsed.password) if parsed.password else parsed.password,
             path=parsed.path,
             query=parsed.query,
             database=database,
