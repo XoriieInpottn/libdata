@@ -46,6 +46,8 @@ class LazyMongoClient(LazyClient[MongoClient]):
         if url.scheme not in {"mongo", "mongodb"}:
             raise ValueError("scheme should be one of {\"mongodb\", \"mongo\"}")
 
+        self.auth_source = auth_source
+        self.buffer_size = buffer_size
         if url.parameters:
             params = url.parameters
             if "auth_source" in params:
@@ -54,15 +56,11 @@ class LazyMongoClient(LazyClient[MongoClient]):
                 self.auth_source = params["authSource"]
             elif "auth_db" in params:
                 self.auth_source = params["auth_db"]
-            else:
-                self.auth_source = auth_source
 
             if "buffer_size" in params:
                 self.buffer_size = int(params["buffer_size"])
             elif "bufferSize" in params:
                 self.buffer_size = int(params["bufferSize"])
-            else:
-                self.buffer_size = buffer_size
 
         self._conn_url = URL(
             scheme="mongodb",
