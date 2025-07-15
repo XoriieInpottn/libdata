@@ -12,7 +12,8 @@ import numpy as np
 from pymilvus import MilvusClient
 from scipy.sparse import csr_array
 
-from libdata.common import ConnectionPool, LazyClient, ParsedURL
+from libdata.common import ConnectionPool, LazyClient
+from libdata.url import URL
 
 DEFAULT_VARCHAR_LENGTH = 65535
 DEFAULT_ID_LENGTH = 256
@@ -36,80 +37,94 @@ SparseVector = Union[csr_array, dict]
 class LazyMilvusClient(LazyClient[MilvusClient]):
 
     @classmethod
-    def from_url(cls, url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if url.hostname is None:
-            url.hostname = "localhost"
-        if url.port is None:
-            url.port = 19530
-        if url.database is None:
-            url.database = "default"
-        if url.table is None:
-            raise ValueError("Collection name should be given in the URL.")
-        return cls(
-            collection=url.table,
-            database=url.database,
-            hostname=url.hostname,
-            port=url.port,
-            username=url.username,
-            password=url.password,
-            **url.params
-        )
+    def from_url(cls, url: Union[str, URL]):
+        return cls(url)
 
     DEFAULT_CONN_POOL_SIZE = 16
     DEFAULT_CONN_POOL = ConnectionPool[MilvusClient](DEFAULT_CONN_POOL_SIZE)
 
     def __init__(
             self,
-            collection: str,
-            *,
-            database: str = "default",
-            hostname: str = "localhost",
-            port: int = 19530,
+            url: Union[str, URL],
+            collection: Optional[str] = None,
+            database: Optional[str] = None,
             username: Optional[str] = None,
             password: Optional[str] = None,
             connection_pool: Optional[ConnectionPool] = None,
-            **kwargs
     ):
         super().__init__()
-        self.collection_name = collection
-        self.database = database
-        self.hostname = hostname
-        self.port = port
+        url = URL.ensure_url(url)
+
+        allowed_schemes = {"milvus", "http", "https", "unix", "tcp"}
+        if url.scheme not in allowed_schemes:
+            raise ValueError(f"scheme should be one of {allowed_schemes}.")
+        scheme = url.scheme
+        if scheme == "milvus":
+            scheme = "http"
+
+        if username is None:
+            username = url.username
+
+        if password is None:
+            password = url.password
+
+        if url.path:
+            path_list = url.path.strip("/").split("/")
+            if len(path_list) == 1:
+                database_from_url = path_list[0]
+                collection_from_url = None
+            elif len(path_list) == 2:
+                database_from_url = path_list[0]
+                collection_from_url = path_list[1]
+            else:
+                raise ValueError("path should only contains database and collection.")
+        else:
+            database_from_url = None
+            collection_from_url = None
+        if database is None:
+            database = database_from_url
+        if collection is None:
+            collection = collection_from_url
+
+        if not database:
+            database = "default"
+        if not collection:
+            raise ValueError("Collection should be given.")
+
+        self._conn_url = URL(
+            scheme=scheme,
+            address=url.address,
+            path=f"/{database}"
+        ).to_string()
+
         self.username = username
         self.password = password
-        self.kwargs = kwargs
+        self.database = database
+        self.collection = collection
 
         self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
-        self._conn_key = (self.hostname, self.port, self.username, self.database)
 
-    # noinspection PyPackageRequirements
     def _connect(self):
-        client = self._conn_pool.get(self._conn_key)
+        client = self._conn_pool.get(self._conn_url)
         if client is None:
             client = MilvusClient(
-                f"http://{self.hostname}:{self.port}",
+                self._conn_url,
                 user=self.username,
-                password=self.password,
-                db_name=self.database,
-                **self.kwargs
+                password=self.password
             )
         return client
 
     def _disconnect(self, client):
-        client = self._conn_pool.put(self._conn_key, client)
+        client = self._conn_pool.put(self._conn_url, client)
         if client is not None:
             client.close()
 
     def exists(self, timeout: Optional[float] = None) -> bool:
-        return self.client.has_collection(self.collection_name, timeout=timeout)
+        return self.client.has_collection(self.collection, timeout=timeout)
 
     def flush(self, timeout: Optional[float] = None):
-        self.client.flush(self.collection_name, timeout=timeout)
+        self.client.flush(self.collection, timeout=timeout)
 
-    # noinspection PyPackageRequirements
     def create(
             self,
             ref_doc: Dict[str, Any],
@@ -168,13 +183,12 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             schema.add_field(field_name=field, **field_kwargs)
 
         self.client.create_collection(
-            collection_name=self.collection_name,
+            collection_name=self.collection,
             schema=schema,
             index_params=index_params,
             timeout=timeout
         )
 
-    # noinspection PyPackageRequirements
     @staticmethod
     def _infer_dtype(value):
         from pymilvus import DataType
@@ -242,7 +256,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
         return converted_doc
 
     def drop(self, timeout: Optional[float] = None):
-        self.client.drop_collection(self.collection_name, timeout=timeout)
+        self.client.drop_collection(self.collection, timeout=timeout)
 
     def insert(self, docs: Union[dict, List[dict]], timeout: Optional[float] = None) -> dict:
         if not isinstance(docs, List):
@@ -257,7 +271,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
         docs = [self._prepare_doc_for_insert(doc) for doc in docs]
 
         return self.client.insert(
-            self.collection_name,
+            self.collection,
             data=docs,
             timeout=timeout
         )
@@ -275,7 +289,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
         docs = [self._prepare_doc_for_insert(doc) for doc in docs]
 
         return self.client.upsert(
-            self.collection_name,
+            self.collection,
             data=docs,
             timeout=timeout
         )
@@ -286,7 +300,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             expr: Optional[str] = None,
             timeout: Optional[float] = None,
     ) -> dict:
-        return self.client.delete(self.collection_name, ids=ids, filter=expr, timeout=timeout)
+        return self.client.delete(self.collection, ids=ids, filter=expr, timeout=timeout)
 
     def query(
             self,
@@ -296,7 +310,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             timeout: Optional[float] = None,
     ) -> List[dict]:
         return self.client.query(
-            self.collection_name,
+            self.collection,
             filter=expr,
             output_fields=output_fields,
             timeout=timeout,
@@ -348,12 +362,12 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             search_params: Optional[dict] = None,
             timeout: Optional[float] = None,
     ):
-        if not self.client.has_collection(self.collection_name):
+        if not self.client.has_collection(self.collection):
             return []
 
         data = self._prepare_vector_for_search(data)
         response = self.client.search(
-            self.collection_name,
+            self.collection,
             data,
             filter=expr,
             limit=limit,
@@ -364,7 +378,6 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
         )
         return response[0]
 
-    # noinspection PyPackageRequirements
     def hybrid_search(
             self,
             data: Mapping[str, Union[DenseVector, SparseVector, List[DenseVector], List[SparseVector]]],
@@ -374,7 +387,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             search_params: Optional[dict] = None,
             timeout: Optional[float] = None,
     ):
-        if not self.client.has_collection(self.collection_name):
+        if not self.client.has_collection(self.collection):
             return []
 
         from pymilvus import AnnSearchRequest, RRFRanker
@@ -391,7 +404,7 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             ))
 
         response = self.client.hybrid_search(
-            self.collection_name,
+            self.collection,
             reqs,
             RRFRanker(k=60),
             filter=expr,
