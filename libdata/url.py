@@ -8,7 +8,7 @@ __all__ = [
 
 import io
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from pydantic import BaseModel, Field
@@ -17,7 +17,7 @@ URL_REGEXP = re.compile(
     r"^((?P<scheme>[A-Za-z0-9]+)://)?"
     r"((?P<auth>[^@]+)@)?"
     r"(?P<address>[^/?#]+)?"
-    r"(?P<path>/[^?#]+)?"
+    r"(?P<path>/[^?#]*)?"
     r"(\?(?P<params>[^#]+))?"
     r"(#(?P<frags>.+))?"
 )
@@ -211,3 +211,27 @@ class URL(BaseModel):
                 f"Invalid URL type. "
                 f"Expect URL, str or bytes, got {type(url)}"
             )
+
+    def get_tokenized_path(self) -> List[str]:
+        return self.path.strip("/").split("/")
+
+    def get_database_and_table(self) -> Tuple[str, str]:
+        database = None
+        table = None
+
+        if self.path:
+            path_list = self.get_tokenized_path()
+            if len(path_list) == 1:
+                database = path_list[0] or None
+                table = None
+            elif len(path_list) == 2:
+                database = path_list[0] or None
+                table = path_list[1] or None
+            else:
+                raise ValueError(
+                    "\"path\" should only contains database and collection. "
+                    "Expect \"/{database_name}/{table_name}\", "
+                    f"got \"{self.path}\"."
+                )
+
+        return database, table

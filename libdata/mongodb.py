@@ -7,7 +7,7 @@ __all__ = [
     "MongoWriter",
 ]
 
-from typing import Any, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from pymongo import MongoClient
 from pymongo.client_session import ClientSession
@@ -70,19 +70,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
             parameters={"authSource": self.auth_source}
         ).to_string()
 
-        if url.path:
-            path_list = url.path.strip("/").split("/")
-            if len(path_list) == 1:
-                self.database = path_list[0]
-                self.collection = None
-            elif len(path_list) == 2:
-                self.database = path_list[0]
-                self.collection = path_list[1]
-            else:
-                raise ValueError("path should only contains database and collection.")
-        else:
-            self.database = None
-            self.collection = None
+        self.database, self.collection = url.get_database_and_table()
 
         self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
         self._db = None
@@ -182,7 +170,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
             query: Optional[Mapping[str, Any]] = None,
             projection: Optional[Mapping[str, Any]] = None,
             sort: Optional[List[Tuple[str, int]]] = None
-    ) -> Cursor:
+    ) -> Optional[Dict]:
         return self.get_collection().find_one(
             filter=query,
             projection=projection,

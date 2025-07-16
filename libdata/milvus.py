@@ -68,24 +68,11 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
         if password is None:
             password = url.password
 
-        if url.path:
-            path_list = url.path.strip("/").split("/")
-            if len(path_list) == 1:
-                database_from_url = path_list[0]
-                collection_from_url = None
-            elif len(path_list) == 2:
-                database_from_url = path_list[0]
-                collection_from_url = path_list[1]
-            else:
-                raise ValueError("path should only contains database and collection.")
-        else:
-            database_from_url = None
-            collection_from_url = None
+        db_from_url, coll_from_url = url.get_database_and_table()
         if database is None:
-            database = database_from_url
+            database = db_from_url
         if collection is None:
-            collection = collection_from_url
-
+            collection = coll_from_url
         if not database:
             database = "default"
         if not collection:
