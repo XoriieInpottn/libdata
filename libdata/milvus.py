@@ -97,7 +97,8 @@ class LazyMilvusClient(LazyClient[MilvusClient]):
             client = MilvusClient(
                 self._conn_url,
                 user=self.username,
-                password=self.password
+                password=self.password,
+                db_name=self.database
             )
         return client
 
