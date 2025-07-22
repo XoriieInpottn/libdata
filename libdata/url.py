@@ -151,6 +151,9 @@ class URL(BaseModel):
             fragments=fragments
         )
 
+    def __str__(self):
+        return self.to_string()
+
     def to_string(self):
         buffer = io.StringIO()
 
