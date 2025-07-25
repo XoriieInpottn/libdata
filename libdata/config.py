@@ -2,9 +2,10 @@
 
 __author__ = "xi"
 __all__ = [
-    "Resource",
-    "JSONResource",
-    "MongoResource",
+    "Config",
+    "JSONConfig",
+    "MongoConfig",
+    "RemoteConfig",
 ]
 
 import abc
@@ -13,25 +14,33 @@ from threading import Lock
 from typing import Dict, MutableMapping, Union
 
 import yaml
+from agent_types.config import DeleteConfigRequest, DeleteConfigResponse, ListConfigRequest, ListConfigResponse, \
+    ReadConfigRequest, ReadConfigResponse, WriteConfigRequest, WriteConfigResponse
+from libentry.mcp.client import APIClient
 
 from libdata import LazyMongoClient
 from libdata.url import URL
 
 
-class Resource(MutableMapping, abc.ABC):
+class Config(MutableMapping, abc.ABC):
 
     @classmethod
-    def from_url(cls, url: Union[str, URL], **kwargs) -> "Resource":
+    def from_url(cls, url: Union[str, URL], **kwargs) -> "Config":
         url = URL.ensure_url(url)
         if url.scheme in {None, "", "json", "yaml", "yml"}:
-            return JSONResource(url.path)
+            return JSONConfig(url.path)
         elif url.scheme in {"mongo", "mongodb"}:
-            return MongoResource(url, **kwargs)
+            return MongoConfig(url, **kwargs)
+        elif url.scheme in {"http", "https"}:
+            config_id = "default"
+            if url.parameters and "config_id" in url.parameters:
+                config_id = url.parameters.pop("config_id")
+            return RemoteConfig(url.to_string(), config_id=config_id)
         else:
             raise NotImplementedError(f"Scheme \"{url.scheme}\" is not supported.")
 
 
-class JSONResource(Resource):
+class JSONConfig(Config):
 
     def __init__(self, path: str):
         self.path = path
@@ -66,9 +75,9 @@ class JSONResource(Resource):
             return iter(self.doc)
 
 
-class MongoResource(Resource):
+class MongoConfig(Config):
 
-    def __init__(self, url: Union[str, URL], cache_timeout: float = 60):
+    def __init__(self, url: Union[str, URL], cache_timeout: float = 12):
         self.url = url
         self.cache_timeout = cache_timeout
 
@@ -125,3 +134,59 @@ class MongoResource(Resource):
         mongo = LazyMongoClient.from_url(self.url)
         for doc in mongo.find():
             yield doc["name"]
+
+
+class RemoteConfig(Config):
+
+    def __init__(self, base_url: str, config_id: str, cache_timeout: float = 12):
+        self.base_url = base_url
+        self.config_id = config_id
+        self.cache_timeout = cache_timeout
+
+        self.client = APIClient(base_url)
+
+        self.lock = Lock()
+        self.cache = {}
+
+    def __getitem__(self, name: str):
+        with self.lock:
+            if name not in self.cache:
+                self.cache[name] = (self._find_item(name), time.time())
+            else:
+                value, last_update = self.cache[name]
+                if time.time() - last_update > self.cache_timeout:
+                    self.cache[name] = (self._find_item(name), time.time())
+            return self.cache[name][0]
+
+    def _find_item(self, name):
+        request = ReadConfigRequest(name=name, config_id=self.config_id)
+        response = ReadConfigResponse.model_validate(self.client.post(request))
+        return response.value
+
+    def __setitem__(self, name: str, value):
+        with self.lock:
+            request = WriteConfigRequest(
+                name=name,
+                value=value,
+                config_id=self.config_id
+            )
+            WriteConfigResponse.model_validate(self.client.post(request))
+            if name in self.cache:
+                del self.cache[name]
+
+    def __delitem__(self, name: str):
+        with self.lock:
+            request = DeleteConfigRequest(name=name, config_id=self.config_id)
+            DeleteConfigResponse.model_validate(self.client.post(request))
+            if name in self.cache:
+                del self.cache[name]
+
+    def __len__(self):
+        request = ListConfigRequest(config_id=self.config_id)
+        response = ListConfigResponse.model_validate(self.client.post(request))
+        return len(response.config)
+
+    def __iter__(self):
+        request = ListConfigRequest(config_id=self.config_id)
+        response = ListConfigResponse.model_validate(self.client.post(request))
+        return iter(response.config)
