@@ -17,7 +17,7 @@ from pymongo.database import Database
 from pymongo.results import DeleteResult, UpdateResult
 from tqdm import tqdm
 
-from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient, ParsedURL
+from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient
 from libdata.url import URL
 
 
@@ -213,10 +213,8 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
 class MongoReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("mongo")
-    @DocReader.register("mongodb")
-    def from_url(url: Union[str, URL]) -> "MongoReader":
+    @classmethod
+    def from_url(cls, url: Union[str, URL]) -> "MongoReader":
         return MongoReader(url)
 
     def __init__(
@@ -278,10 +276,8 @@ class MongoReader(DocReader):
 
 class MongoWriter(DocWriter):
 
-    @staticmethod
-    @DocWriter.register("mongo")
-    @DocWriter.register("mongodb")
-    def from_url(url: Union[str, ParsedURL]):
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
         return MongoWriter(url)
 
     def __init__(

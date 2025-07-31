@@ -3,37 +3,39 @@
 __author__ = "xi"
 __all__ = [
     "MySQLReader",
+    "MySQLWriter",
 ]
 
 from datetime import datetime
 from typing import Any, Mapping, Optional, Union
 
+from mysql.connector import MySQLConnection
 from tqdm import tqdm
 
-from libdata.common import DocReader, DocWriter, ParsedURL
+from libdata.common import DocReader, DocWriter
+from libdata.url import Address, URL
 
 
 class MySQLReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("mysql")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"mysql"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
-        if url.database is None or url.table is None:
-            raise ValueError(f"Invalid path \"{url.path}\" for database.")
 
+        assert isinstance(url.address, Address)
+
+        database, table = url.get_database_and_table()
         return MySQLReader(
-            host=url.hostname,
-            port=url.port,
+            host=url.address.host,
+            port=url.address.port,
             user=url.username,
             password=url.password,
-            database=url.database,
-            table=url.table,
-            **url.params
+            database=database,
+            table=table,
+            **url.parameters
         )
 
     def __init__(
@@ -58,7 +60,6 @@ class MySQLReader(DocReader):
         self.conn = None
 
     def _get_conn(self):
-        from mysql.connector import MySQLConnection
         return MySQLConnection(
             host=self.host,
             port=self.port,
@@ -105,25 +106,24 @@ class MySQLReader(DocReader):
 
 class MySQLWriter(DocWriter):
 
-    @staticmethod
-    @DocWriter.register("mysql")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"mysql"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
-        if url.database is None or url.table is None:
-            raise ValueError(f"Invalid path \"{url.path}\" for database.")
 
+        assert isinstance(url.address, Address)
+
+        database, table = url.get_database_and_table()
         return MySQLWriter(
-            host=url.hostname,
-            port=url.port,
+            host=url.address.host,
+            port=url.address.port,
             user=url.username,
             password=url.password,
-            database=url.database,
-            table=url.table,
-            **url.params
+            database=database,
+            table=table,
+            **url.parameters
         )
 
     def __init__(
@@ -149,7 +149,6 @@ class MySQLWriter(DocWriter):
 
     def get_connection(self):
         if self._conn is None:
-            from mysql.connector import MySQLConnection
             self._conn = MySQLConnection(
                 host=self.host,
                 port=self.port,

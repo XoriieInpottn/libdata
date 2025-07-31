@@ -10,23 +10,20 @@ from typing import Union
 
 import yaml
 
-from libdata.common import DocReader, ParsedURL
+from libdata.common import DocReader
+from libdata.url import URL
 
 
 class JSONReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("json")
-    @DocReader.register("yaml")
-    @DocReader.register("yml")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"json", "yaml", "yml"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return JSONReader(path=url.path, **url.params)
+        return JSONReader(path=url.path, **url.parameters)
 
     def __init__(
             self,

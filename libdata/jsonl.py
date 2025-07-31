@@ -12,21 +12,20 @@ from typing import Union
 
 from tqdm import tqdm
 
-from libdata.common import DocReader, DocWriter, ParsedURL
+from libdata.common import DocReader, DocWriter
+from libdata.url import URL
 
 
 class JSONLReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("jsonl")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"json", "jsonl"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return JSONLReader(path=url.path, **url.params)
+        return JSONLReader(path=url.path, **url.parameters)
 
     def __init__(
             self,
@@ -66,17 +65,14 @@ class JSONLReader(DocReader):
 
 class JSONLWriter(DocWriter):
 
-    @staticmethod
-    @DocWriter.register("json")
-    @DocWriter.register("jsonl")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"json", "jsonl"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return JSONLWriter(path=url.path, **url.params)
+        return JSONLWriter(path=url.path, **url.parameters)
 
     def __init__(self, path: str, replace: bool = False):
         self.path = path

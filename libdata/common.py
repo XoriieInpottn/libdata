@@ -2,7 +2,6 @@
 
 __author__ = "xi"
 __all__ = [
-    "ParsedURL",
     "DocReader",
     "DocWriter",
     "LazyClient",
@@ -10,103 +9,46 @@ __all__ = [
 ]
 
 import abc
-import re
-from ast import literal_eval
+import importlib
 from collections import defaultdict, deque
 from threading import Lock
-from typing import Any, Callable, Dict, Generic, Optional, TypeVar, Union
-from urllib.parse import unquote, urlparse
+from typing import Generic, Optional, TypeVar, Union
 
-from pydantic import BaseModel, Field
-
-
-class ParsedURL(BaseModel):
-    scheme: Optional[str] = Field(default=None)
-    hostname: Optional[str] = Field(default=None)
-    port: Optional[int] = Field(default=None)
-    username: Optional[str] = Field(default=None)
-    password: Optional[str] = Field(default=None)
-    path: Optional[str] = Field(default=None)
-    query: Optional[str] = Field(default=None)
-    database: Optional[str] = Field(default=None)
-    table: Optional[str] = Field(default=None)
-    params: Optional[Dict[str, Any]] = Field(default=None)
-
-    @classmethod
-    def from_string(cls, url: str) -> "ParsedURL":
-        parsed = urlparse(url)
-
-        # database and table
-        matched = re.search(r"^/(?P<db>\w*)(/(?P<tb>.*))?$", parsed.path)
-        database, table = None, None
-        if matched is not None:
-            g = matched.groupdict()
-            database = g["db"]
-            if not database:
-                database = None
-            table = g["tb"]
-            if not table:
-                table = None
-
-        # params
-        params = {}
-        for param in parsed.query.split("&"):
-            if not param:
-                continue
-            try:
-                name, value = param.split("=")
-            except ValueError:
-                raise ValueError(f"Invalid url parameter \"{param}\".")
-
-            try:
-                value = literal_eval(value)
-            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-                pass
-            params[name] = value
-
-        return ParsedURL(
-            scheme=parsed.scheme,
-            hostname=parsed.hostname,
-            port=parsed.port,
-            username=parsed.username,
-            password=unquote(parsed.password) if parsed.password else parsed.password,
-            path=parsed.path,
-            query=parsed.query,
-            database=database,
-            table=table,
-            params=params,
-        )
+from libdata.url import URL
 
 
 class DocReader(abc.ABC):
     """Abstract class for document readers."""
 
-    factory = {}
-
     @classmethod
-    def register(cls, name: str, fn: Callable = None):
-        if fn is not None:
-            if name in cls.factory:
-                raise RuntimeError(f"Duplicated subclass \"{name}\".")
-            cls.factory[name] = fn
-            return None
-        else:
-            def _register(_fn):
-                assert _fn is not None
-                cls.register(name, _fn)
-                return _fn
+    def from_url(cls, url: Union[str, URL]) -> "DocReader":
+        url = URL.ensure_url(url)
 
-            return _register
+        factory = {
+            "json": "libdata.json.JSONReader",
+            "yaml": "libdata.json.JSONReader",
+            "yml": "libdata.json.JSONReader",
+            "jsondir": "libdata.json_dir.JSONDirReader",
+            "jsonl": "libdata.jsonl.JSONLReader",
+            "mongo": "libdata.mongodb.MongoReader",
+            "mongodb": "libdata.mongodb.MongoReader",
+            "mysql": "libdata.mysql.MySQLReader",
+            "yamldir": "libdata.json_dir.YAMLDirReader",
+            "ymldir": "libdata.json_dir.YAMLDirReader",
+        }
 
-    @classmethod
-    def from_url(cls, url: Union[str, ParsedURL]) -> "DocReader":
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if url.scheme not in DocReader.factory:
+        if url.scheme not in factory:
             raise ValueError(f"Unsupported type \"{url.scheme}\".")
 
-        return cls.factory[url.scheme](url=url)
+        name = factory.get(url.scheme)
+        try:
+            module, reader_class = name.rsplit(".", 1)
+            reader_class = getattr(importlib.import_module(module), reader_class)
+        except ValueError or ModuleNotFoundError or AttributeError:
+            raise RuntimeError(f"Failed to import `{name}`.")
+
+        assert isinstance(reader_class, type) and issubclass(reader_class, DocReader)
+        return reader_class.from_url(url)
 
     def __iter__(self):
         return (self[idx] for idx in range(len(self)))
@@ -133,32 +75,33 @@ class DocReader(abc.ABC):
 class DocWriter(abc.ABC):
     """Abstract class for document writers."""
 
-    factory = {}
-
     @classmethod
-    def register(cls, name: str, fn: Callable = None):
-        if fn is not None:
-            if name in cls.factory:
-                raise RuntimeError(f"Duplicated subclass \"{name}\".")
-            cls.factory[name] = fn
-            return None
-        else:
-            def _register(_fn):
-                assert _fn is not None
-                cls.register(name, _fn)
-                return _fn
+    def from_url(cls, url: Union[str, URL]) -> "DocWriter":
+        url = URL.ensure_url(url)
 
-            return _register
+        factory = {
+            "jsondir": "libdata.json_dir.JSONDirWriter",
+            "json": "libdata.jsonl.JSONLWriter",
+            "jsonl": "libdata.jsonl.JSONLWriter",
+            "mongo": "libdata.mongodb.MongoWriter",
+            "mongodb": "libdata.mongodb.MongoWriter",
+            "mysql": "libdata.mysql.MySQLWriter",
+            "yamldir": "libdata.json_dir.YAMLDirWriter",
+            "ymldir": "libdata.json_dir.YAMLDirWriter",
+        }
 
-    @classmethod
-    def from_url(cls, url: Union[str, ParsedURL]) -> "DocWriter":
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
-
-        if url.scheme not in DocWriter.factory:
+        if url.scheme not in factory:
             raise ValueError(f"Unsupported type \"{url.scheme}\".")
 
-        return cls.factory[url.scheme](url=url)
+        name = factory.get(url.scheme)
+        try:
+            module, writer_class = name.rsplit(".", 1)
+            writer_class = getattr(importlib.import_module(module), writer_class)
+        except ValueError or ModuleNotFoundError or AttributeError:
+            raise RuntimeError(f"Failed to import `{name}`.")
+
+        assert isinstance(writer_class, type) and issubclass(writer_class, DocWriter)
+        return writer_class.from_url(url)
 
     def __del__(self):
         self.close()

@@ -12,7 +12,8 @@ from typing import List, Optional, Tuple, Union
 
 from redis import Redis
 
-from libdata.common import ConnectionPool, LazyClient, ParsedURL
+from libdata.common import ConnectionPool, LazyClient
+from libdata.url import Address, URL
 
 
 class AbstractRedisProxy(ABC):
@@ -109,46 +110,27 @@ class SetProxy(AbstractRedisProxy, ABC):
 class LazyRedisClient(StringProxy, ListProxy, HashProxy, ABC):
 
     @staticmethod
-    def from_url(url: Union[str, List[str]]) -> "LazyRedisClient":
-        url_list = [
-            ParsedURL.from_string(item)
-            for item in (url if isinstance(url, List) else url.split("\n"))
-            if item
-        ]
-        if len(url_list) == 1 and ("service_name" not in url_list[0].params):
-            url = url_list[0]
+    def from_url(url: Union[str, URL]) -> "LazyRedisClient":
+        url = URL.ensure_url(url)
+        address = url.address
+        database, _ = url.get_database_and_table()
+        if database is not None:
+            database = int(database)
+        if isinstance(address, Address) and ("service_name" not in url.parameters):
             return LazyRedisStandalone(
-                database=url.database,
-                hostname=url.hostname,
-                port=url.port,
+                database=database,
+                hostname=address.host,
+                port=address.port,
                 username=url.username,
                 password=url.password
             )
         else:
-            sentinels = []
-            service_name = None
-            database = None
-            username = None
-            password = None
-            for item in url_list:
-                assert item.scheme in {"redis"}
-
-                sentinels.append((item.hostname, item.port))
-                if "service_name" in item.params:
-                    service_name = item.params["service_name"]
-                if item.database is not None:
-                    database = item.database
-                if item.username:
-                    username = item.username
-                if item.password:
-                    password = item.password
-
             return LazyRedisSentinel(
-                sentinels=sentinels,
-                service_name=service_name,
+                sentinels=[(item.host, item.port) for item in address],
+                service_name=url.parameters.get("service_name"),
                 database=database,
-                username=username,
-                password=password
+                username=url.username,
+                password=url.password
             )
 
     def keys(self, pattern: str = "*"):

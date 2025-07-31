@@ -10,21 +10,20 @@ import json
 import os
 from typing import Optional, Union
 
-from libdata.common import DocReader, DocWriter, ParsedURL
+from libdata.common import DocReader, DocWriter
+from libdata.url import URL
 
 
 class JSONDirReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("jsondir")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"jsondir"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return JSONDirReader(dir_path=url.path, **url.params)
+        return JSONDirReader(dir_path=url.path, **url.parameters)
 
     def __init__(
             self,
@@ -81,16 +80,14 @@ class JSONDirReader(DocReader):
 
 class JSONDirWriter(DocWriter):
 
-    @staticmethod
-    @DocWriter.register("jsondir")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"jsondir"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return JSONDirWriter(dir_path=url.path, **url.params)
+        return JSONDirWriter(dir_path=url.path, **url.parameters)
 
     def __init__(
             self,

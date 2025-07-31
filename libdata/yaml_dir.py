@@ -11,22 +11,20 @@ from typing import Optional, Union
 
 import yaml
 
-from libdata.common import DocReader, DocWriter, ParsedURL
+from libdata.common import DocReader, DocWriter
+from libdata.url import URL
 
 
 class YAMLDirReader(DocReader):
 
-    @staticmethod
-    @DocReader.register("yamldir")
-    @DocReader.register("ymldir")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"yamldir", "ymldir"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return YAMLDirReader(dir_path=url.path, **url.params)
+        return YAMLDirReader(dir_path=url.path, **url.parameters)
 
     def __init__(
             self,
@@ -83,17 +81,14 @@ class YAMLDirReader(DocReader):
 
 class YAMLDirWriter(DocWriter):
 
-    @staticmethod
-    @DocWriter.register("yamldir")
-    @DocWriter.register("ymldir")
-    def from_url(url: Union[str, ParsedURL]):
-        if not isinstance(url, ParsedURL):
-            url = ParsedURL.from_string(url)
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
 
         if not url.scheme in {"yamldir", "ymldir"}:
             raise ValueError(f"Unsupported scheme \"{url.scheme}\".")
 
-        return YAMLDirWriter(dir_path=url.path, **url.params)
+        return YAMLDirWriter(dir_path=url.path, **url.parameters)
 
     def __init__(
             self,
