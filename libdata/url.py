@@ -13,14 +13,12 @@ from urllib.parse import quote, unquote
 
 from pydantic import BaseModel, Field
 
-URL_REGEXP = re.compile(
-    r"^((?P<scheme>[A-Za-z0-9]+)://)?"
-    r"((?P<auth>[^@]+)@)?"
-    r"(?P<address>[^/?#]+)?"
-    r"(?P<path>/[^?#]*)?"
-    r"(\?(?P<params>[^#]+))?"
-    r"(#(?P<frags>.+))?"
-)
+RE_SCHEMA = re.compile("^(?P<value>[A-Za-z0-9]+)://")
+RE_AUTH = re.compile("(?P<value>[^@]+)@")
+RE_ADDRESS = re.compile("(?P<value>[^/?#]+)")
+RE_PATH = re.compile("(?P<value>/?[^?#]*)")
+RE_PARAMS = re.compile("\?(?P<value>[^#]+)")
+RE_FRAGS = re.compile("(#(?P<value>.+))")
 
 
 class Address(BaseModel):
@@ -87,17 +85,47 @@ class URL(BaseModel):
 
     @classmethod
     def from_string(cls, url_str: str):
-        matched = URL_REGEXP.match(url_str)
-        if not matched:
-            raise ValueError(f"\"{url_str}\" is not a valid URL string.")
+        scheme = None
+        auth = None
+        address = None
+        path = None
+        params = None
+        fragments = None
 
-        matched_groups = matched.groupdict()
-        scheme = matched_groups["scheme"]
-        auth = matched_groups["auth"]
-        address = matched_groups["address"]
-        path = matched_groups["path"]
-        params = matched_groups["params"]
-        fragments = matched_groups["frags"]
+        pos = 0
+        if m := RE_SCHEMA.match(url_str, pos):
+            scheme = m.group("value")
+            pos = m.span()[1]
+
+            if m := RE_AUTH.match(url_str, pos):
+                auth = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_ADDRESS.match(url_str, pos):
+                address = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_PATH.match(url_str, pos):
+                path = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_PARAMS.match(url_str, pos):
+                params = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_FRAGS.match(url_str, pos):
+                fragments = m.group("value")
+        else:
+            if m := RE_PATH.match(url_str, pos):
+                path = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_PARAMS.match(url_str, pos):
+                params = m.group("value")
+                pos = m.span()[1]
+
+            if m := RE_FRAGS.match(url_str, pos):
+                fragments = m.group("value")
 
         if scheme:
             scheme = unquote(scheme)
@@ -153,6 +181,9 @@ class URL(BaseModel):
 
     def __str__(self):
         return self.to_string()
+
+    def __repr__(self):
+        return super().__repr__()
 
     def to_string(self):
         buffer = io.StringIO()
