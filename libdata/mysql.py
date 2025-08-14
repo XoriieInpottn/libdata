@@ -12,8 +12,70 @@ from typing import Any, Mapping, Optional, Union
 from mysql.connector import MySQLConnection
 from tqdm import tqdm
 
-from libdata.common import DocReader, DocWriter
+from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient
 from libdata.url import Address, URL
+
+
+class LazyMySQLClient(LazyClient[MySQLConnection]):
+    """MySQL client with a connection pool.
+    The client is thread safe.
+    """
+
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        return cls(url)
+
+    DEFAULT_CONN_POOL_SIZE = 16
+    DEFAULT_CONN_POOL = ConnectionPool[MySQLConnection](DEFAULT_CONN_POOL_SIZE)
+
+    def __init__(
+            self,
+            url: Union[str, URL],
+            connection_pool: Optional[ConnectionPool] = None
+    ):
+        super().__init__()
+        url = URL.ensure_url(url)
+
+        if url.scheme != "mysql":
+            raise ValueError("scheme should be `mysql`.")
+
+        self._conn_url = URL(
+            scheme="mysql",
+            username=url.username,
+            password=url.password,
+            address=url.address,
+        ).to_string()
+
+        self.database, _ = url.get_database_and_table()
+
+        self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
+
+    def _connect(self):
+        client = self._conn_pool.get(self._conn_url)
+        if client is None:
+            conn_url = URL.ensure_url(self._conn_url)
+            assert isinstance(conn_url.address, Address)
+            client = MySQLConnection(
+                host=conn_url.address.host,
+                port=conn_url.address.port or 3306,
+                user=conn_url.username,
+                password=conn_url.password,
+                database=self.database,
+            )
+        return client
+
+    def _disconnect(self, client):
+        client = self._conn_pool.put(self._conn_url, client)
+        if client is not None:
+            client.close()
+
+    def execute(self, sql: str, params=None, dictionary: bool = False):
+        cur = self.client.cursor(dictionary=dictionary)
+        cur.execute(sql, params=params)
+        return cur
+
+    def commit(self):
+        return self.client.commit()
 
 
 class MySQLReader(DocReader):
@@ -27,51 +89,25 @@ class MySQLReader(DocReader):
 
         assert isinstance(url.address, Address)
 
-        database, table = url.get_database_and_table()
-        return MySQLReader(
-            host=url.address.host,
-            port=url.address.port,
-            user=url.username,
-            password=url.password,
-            database=database,
-            table=table,
-            **url.parameters
-        )
+        return MySQLReader(url)
 
     def __init__(
             self,
-            database: str,
-            table: str,
-            host: Optional[str] = "127.0.0.1",
-            port: Optional[int] = 3306,
-            user: str = "root",
-            password: str = None,
+            url: Union[str, URL],
             key_field="id"
     ) -> None:
-        self.database = database
-        self.table = table
-        self.host = host if host is not None else "127.0.0.1"
-        self.port = port if port is not None else 3306
-        self.user = user
-        self.password = password
+        url = URL.ensure_url(url)
+        self.client = LazyMySQLClient.from_url(url)
+        _, self.table = url.get_database_and_table()
+
         self.key_field = key_field
 
         self.key_list = self._fetch_keys()
-        self.conn = None
-
-    def _get_conn(self):
-        return MySQLConnection(
-            host=self.host,
-            port=self.port,
-            database=self.database,
-            user=self.user,
-            password=self.password,
-        )
 
     def _fetch_keys(self):
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"SELECT {self.key_field} FROM {self.table};")
+        sql = f"SELECT {self.key_field} FROM {self.table};"
+        with self.client:
+            with self.client.execute(sql) as cur:
                 return [row[0] for row in tqdm(cur, leave=False)]
 
     def __len__(self):
@@ -79,28 +115,20 @@ class MySQLReader(DocReader):
 
     def __getitem__(self, idx: int):
         key = self.key_list[idx]
-
-        if self.conn is None:
-            self.conn = self._get_conn()
-
-        with self.conn.cursor(dictionary=True) as cur:
-            cur.execute(f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';")
+        sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
+        with self.client.execute(sql, dictionary=True) as cur:
             return cur.fetchone()
 
     def close(self):
-        if self.conn is not None:
-            self.conn.close()
-            self.conn = None
+        if hasattr(self, "client"):
+            self.client.close()
 
     def __del__(self):
         self.close()
 
     def read(self, key):
-        if self.conn is None:
-            self.conn = self._get_conn()
-
-        with self.conn.cursor(dictionary=True) as cur:
-            cur.execute(f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';")
+        sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
+        with self.client.execute(sql, dictionary=True) as cur:
             return cur.fetchone()
 
 
@@ -115,48 +143,20 @@ class MySQLWriter(DocWriter):
 
         assert isinstance(url.address, Address)
 
-        database, table = url.get_database_and_table()
-        return MySQLWriter(
-            host=url.address.host,
-            port=url.address.port,
-            user=url.username,
-            password=url.password,
-            database=database,
-            table=table,
-            **url.parameters
-        )
+        return MySQLWriter(url)
 
     def __init__(
             self,
-            database: str,
-            table: str,
-            host: Optional[str] = "127.0.0.1",
-            port: Optional[int] = 3306,
-            user: str = "root",
-            password: str = None,
+            url: Union[str, URL],
             verbose: bool = True
     ):
-        self.database = database
-        self.table = table
-        self.host = host if host is not None else "127.0.0.1"
-        self.port = port if port is not None else 3306
-        self.user = user
-        self.password = password
+        url = URL.ensure_url(url)
+        self.client = LazyMySQLClient.from_url(url)
+        _, self.table = url.get_database_and_table()
+
         self.verbose = verbose
 
-        self._conn = None
         self._table_exists = None
-
-    def get_connection(self):
-        if self._conn is None:
-            self._conn = MySQLConnection(
-                host=self.host,
-                port=self.port,
-                database=self.database,
-                user=self.user,
-                password=self.password,
-            )
-        return self._conn
 
     def write(self, doc: Mapping[str, Any]):
         if not self.table_exists():
@@ -172,16 +172,15 @@ class MySQLWriter(DocWriter):
         fields = ", ".join(fields)
         placeholders = ", ".join(placeholders)
 
-        conn = self.get_connection()
-        with conn.cursor() as cur:
-            cur.execute(f"INSERT INTO {self.table} ({fields}) VALUES ({placeholders});", values)
-        conn.commit()
+        sql = f"INSERT INTO {self.table} ({fields}) VALUES ({placeholders});"
+        with self.client.execute(sql, params=values):
+            pass
+        self.client.commit()
 
     def table_exists(self):
         if self._table_exists is None:
-            conn = self.get_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = %s", (self.table,))
+            sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
+            with self.client.execute(sql, params=(self.table,)) as cur:
                 self._table_exists = cur.fetchone()[0] == 1
         return self._table_exists
 
@@ -200,21 +199,20 @@ class MySQLWriter(DocWriter):
             fields.append((field, _type))
         fields = ", ".join(f"`{field}` {_type}" for field, _type in fields)
 
-        conn = self.get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                f"CREATE TABLE IF NOT EXISTS `{self.table}` ("
-                f"`id` INT NOT NULL AUTO_INCREMENT, "
-                f"{fields}, "
-                f"PRIMARY KEY (`id`)"
-                f");"
-            )
-        conn.commit()
+        sql = (
+            f"CREATE TABLE IF NOT EXISTS `{self.table}` ("
+            f"`id` INT NOT NULL AUTO_INCREMENT, "
+            f"{fields}, "
+            f"PRIMARY KEY (`id`)"
+            f");"
+        )
+        with self.client.execute(sql):
+            pass
+        self.client.commit()
 
     def close(self):
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        if hasattr(self, "client"):
+            self.client.close()
 
     def __del__(self):
         self.close()
