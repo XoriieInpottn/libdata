@@ -90,7 +90,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
     def get_database(self) -> Database:
         if self._db is None:
-            if not self.collection:
+            if not self.database:
                 raise RuntimeError("Database name should be given.")
             self._db = self.client.get_database(self.database)
         return self._db
@@ -138,6 +138,8 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
     def close(self):
         self.flush()
+        self._db = None
+        self._coll = None
         super().close()
 
     def count(self) -> int:
