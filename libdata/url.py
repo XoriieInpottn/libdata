@@ -189,14 +189,14 @@ class URL(BaseModel):
         buffer = io.StringIO()
 
         if self.scheme:
-            buffer.write(quote(self.scheme))
+            buffer.write(quote(self.scheme, safe=""))
             buffer.write("://")
 
         if self.username:
-            buffer.write(quote(self.username))
+            buffer.write(quote(self.username, safe=""))
             if self.password:
                 buffer.write(":")
-                buffer.write(quote(self.password))
+                buffer.write(quote(self.password, safe=""))
             buffer.write("@")
 
         if self.address:
@@ -209,7 +209,7 @@ class URL(BaseModel):
                 if i != 0:
                     buffer.write(",")
                 if address.host:
-                    buffer.write(quote(address.host))
+                    buffer.write(quote(address.host, safe=""))
                     if address.port:
                         buffer.write(":")
                         buffer.write(str(address.port))
@@ -222,13 +222,13 @@ class URL(BaseModel):
         if self.parameters:
             buffer.write("?")
             for name, value in self.parameters.items():
-                buffer.write(quote(name))
+                buffer.write(quote(name, safe=""))
                 buffer.write("=")
-                buffer.write(quote(value))
+                buffer.write(quote(value, safe=""))
 
         if self.fragments:
             buffer.write("#")
-            buffer.write(quote(self.fragments))
+            buffer.write(quote(self.fragments, safe=""))
 
         return buffer.getvalue()
 
