@@ -2,6 +2,7 @@
 
 __author__ = "xi"
 __all__ = [
+    "LazyMySQLClient",
     "MySQLReader",
     "MySQLWriter",
 ]
@@ -108,7 +109,9 @@ class MySQLReader(DocReader):
         sql = f"SELECT {self.key_field} FROM {self.table};"
         with self.client:
             with self.client.execute(sql) as cur:
-                return [row[0] for row in tqdm(cur, leave=False)]
+                key_list = [row[0] for row in tqdm(cur, leave=False)]
+            self.client.commit()
+            return key_list
 
     def __len__(self):
         return len(self.key_list)
@@ -117,7 +120,9 @@ class MySQLReader(DocReader):
         key = self.key_list[idx]
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
         with self.client.execute(sql, dictionary=True) as cur:
-            return cur.fetchone()
+            doc = cur.fetchone()
+            self.client.commit()
+            return doc
 
     def close(self):
         if hasattr(self, "client"):
@@ -129,7 +134,9 @@ class MySQLReader(DocReader):
     def read(self, key):
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
         with self.client.execute(sql, dictionary=True) as cur:
-            return cur.fetchone()
+            doc = cur.fetchone()
+            self.client.commit()
+            return doc
 
 
 class MySQLWriter(DocWriter):
@@ -182,6 +189,7 @@ class MySQLWriter(DocWriter):
             sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
             with self.client.execute(sql, params=(self.table,)) as cur:
                 self._table_exists = cur.fetchone()[0] == 1
+            self.client.commit()
         return self._table_exists
 
     def create_table_from_doc(self, doc: Mapping[str, Any]):
