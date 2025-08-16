@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 from datetime import datetime
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 from mysql.connector import MySQLConnection
 from tqdm import tqdm
@@ -47,7 +47,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             address=url.address,
         ).to_string()
 
-        self.database, _ = url.get_database_and_table()
+        self.database, self.table = url.get_database_and_table()
 
         self._conn_pool = connection_pool if connection_pool else self.DEFAULT_CONN_POOL
 
@@ -77,6 +77,94 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
 
     def commit(self):
         return self.client.commit()
+
+    def table_exists(self, table: Optional[str] = None) -> bool:
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
+        cur = self.execute(sql, params=(table,))
+        try:
+            with cur:
+                return cur.fetchone()[0] == 1
+        finally:
+            self.commit()
+
+    def find(
+            self,
+            where: Optional[str] = None,
+            projection: Union[List[str], str] = "*",
+            table: Optional[str] = None
+    ):
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        sql = f"SELECT {projection} FROM {table}"
+        if where:
+            sql += " WHERE " + where
+        sql += ";"
+        cur = self.execute(sql, dictionary=True)
+        try:
+            for doc in cur:
+                yield doc
+            ret = cur.close()
+            return ret
+        finally:
+            self.commit()
+
+    def insert(self, doc: Dict[str, Any], table: Optional[str] = None):
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        fields = []
+        placeholders = []
+        values = []
+        for k, v in doc.items():
+            fields.append(k)
+            placeholders.append("%s")
+            values.append(v)
+        fields = ", ".join(fields)
+        placeholders = ", ".join(placeholders)
+
+        sql = f"INSERT INTO {table} ({fields}) VALUES ({placeholders});"
+        cur = self.execute(sql, params=values)
+        try:
+            return cur.close()
+        finally:
+            self.commit()
+
+    # noinspection PyShadowingBuiltins
+    def update(self, set: str, where: str, table: Optional[str] = None):
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        sql = f"UPDATE {table} SET {set} WHERE {where};"
+        cur = self.execute(sql)
+        try:
+            return cur.close()
+        finally:
+            self.commit()
+
+    def delete(self, where: str, table: Optional[str] = None):
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        sql = f"DELETE FROM {table} WHERE {where};"
+        cur = self.execute(sql)
+        try:
+            return cur.close()
+        finally:
+            self.commit()
 
 
 class MySQLReader(DocReader):
