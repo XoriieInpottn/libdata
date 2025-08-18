@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Union
 
 from mysql.connector import MySQLConnection
+from mysql.connector.cursor import MySQLCursor
 from tqdm import tqdm
 
 from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient
@@ -70,13 +71,59 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         if client is not None:
             client.close()
 
-    def execute(self, sql: str, params=None, dictionary: bool = False):
-        cur = self.client.cursor(dictionary=dictionary)
+    def cursor(
+            self,
+            buffered: Optional[bool] = None,
+            raw: Optional[bool] = None,
+            prepared: Optional[bool] = None,
+            dictionary: Optional[bool] = None,
+            named_tuple: Optional[bool] = None
+    ) -> MySQLCursor:
+        return self.client.cursor(
+            buffered=buffered,
+            raw=raw,
+            prepared=prepared,
+            dictionary=dictionary,
+            named_tuple=named_tuple
+        )
+
+    def execute(
+            self,
+            sql: str,
+            params=None,
+            buffered: Optional[bool] = None,
+            raw: Optional[bool] = None,
+            prepared: Optional[bool] = None,
+            dictionary: Optional[bool] = None,
+            named_tuple: Optional[bool] = None
+    ) -> MySQLCursor:
+        cur = self.client.cursor(
+            buffered=buffered,
+            raw=raw,
+            prepared=prepared,
+            dictionary=dictionary,
+            named_tuple=named_tuple
+        )
         cur.execute(sql, params=params)
         return cur
 
+    def start_transaction(
+            self,
+            consistent_snapshot: bool = False,
+            isolation_level: Optional[str] = None,
+            readonly: Optional[bool] = None,
+    ) -> None:
+        self.client.start_transaction(
+            consistent_snapshot=consistent_snapshot,
+            isolation_level=isolation_level,
+            readonly=readonly
+        )
+
     def commit(self):
         return self.client.commit()
+
+    def rollback(self):
+        return self.client.rollback()
 
     def table_exists(self, table: Optional[str] = None) -> bool:
         if not table:
