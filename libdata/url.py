@@ -153,9 +153,8 @@ class URL(BaseModel):
                 address_list.append(Address(host=host, port=port))
             address = address_list[0] if len(address_list) == 1 else address_list
 
-        parameters = None
+        parameters = {}
         if params:
-            parameters = {}
             for p in params.split("&"):
                 i = p.find("=")
                 if i > 0:
@@ -221,7 +220,9 @@ class URL(BaseModel):
 
         if self.parameters:
             buffer.write("?")
-            for name, value in self.parameters.items():
+            for i, (name, value) in enumerate(self.parameters.items()):
+                if i != 0:
+                    buffer.write("&")
                 buffer.write(quote(name, safe=""))
                 buffer.write("=")
                 buffer.write(quote(value, safe=""))
@@ -269,3 +270,17 @@ class URL(BaseModel):
                 )
 
         return database, table
+
+    def update_parameters(self, params: Dict[str, str]):
+        if self.parameters:
+            self.parameters.update(params)
+        else:
+            self.parameters = params
+        return self
+
+    def append_path(self, path: str):
+        if self.path:
+            self.path = self.path.rstrip("/") + "/" + path.lstrip("/")
+        else:
+            self.path = path
+        return self

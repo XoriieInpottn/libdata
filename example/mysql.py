@@ -68,8 +68,7 @@ def main():
     ################################################################################
     print("Read all samples via DocReader")
     url = URL.ensure_url(url)
-    reader_url = url.model_copy()
-    reader_url.path = reader_url.path.rstrip() + "/my_test"
+    reader_url = url.model_copy().append_path("my_test")
     print(f"Table URL: {reader_url}")
     reader = DocReader.from_url(reader_url)
     for doc in reader:
@@ -109,17 +108,14 @@ def main():
     ################################################################################
     print("Utilize a transaction")
     url = URL.ensure_url(url)
-    trans_url = url.model_copy()
-    if not trans_url.parameters:
-        trans_url.parameters = {}
-    trans_url.parameters["autocommit"] = "false"
+    trans_url = url.model_copy().update_parameters({"autocommit": "false"})
     print(trans_url)
-    trans_client = LazyMySQLClient.from_url(trans_url)
-    trans_client.start_transaction()
-    with trans_client.cursor(dictionary=True, buffered=True) as cur, trans_client:
-        cur.execute("SELECT * FROM my_test WHERE name = \"LiLei\";")
-        doc = cur.fetchone()
-        cur.execute("UPDATE my_test SET age = %s WHERE name = \"LiLei\";", params=(doc["age"] + 1,))
+    with LazyMySQLClient.from_url(trans_url) as trans_client:
+        trans_client.start_transaction()
+        with trans_client.cursor(dictionary=True, buffered=True) as cur:
+            cur.execute("SELECT * FROM my_test WHERE name = \"LiLei\";")
+            doc = cur.fetchone()
+            cur.execute("UPDATE my_test SET age = %s WHERE name = \"LiLei\";", params=(doc["age"] + 1,))
         trans_client.commit()
     with LazyMySQLClient.from_url(url) as client:
         print("Current table data:")
