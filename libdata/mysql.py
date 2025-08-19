@@ -41,11 +41,19 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         if url.scheme != "mysql":
             raise ValueError("scheme should be `mysql`.")
 
+        parameters = None
+        allowed_params = {"autocommit"}
+        if url.parameters:
+            parameters = {
+                k: v for k, v in url.parameters.items()
+                if k in allowed_params
+            }
         self._conn_url = URL(
             scheme="mysql",
             username=url.username,
             password=url.password,
             address=url.address,
+            parameters=parameters
         ).to_string()
 
         self.database, self.table = url.get_database_and_table()
@@ -57,12 +65,20 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         if client is None:
             conn_url = URL.ensure_url(self._conn_url)
             assert isinstance(conn_url.address, Address)
+
+            autocommit = True
+            if conn_url.parameters:
+                parameters = conn_url.parameters
+                if "autocommit" in parameters:
+                    autocommit = parameters["autocommit"] in {"True", "true", "1"}
+
             client = MySQLConnection(
                 host=conn_url.address.host,
                 port=conn_url.address.port or 3306,
                 user=conn_url.username,
                 password=conn_url.password,
                 database=self.database,
+                autocommit=autocommit
             )
         return client
 
@@ -76,15 +92,13 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             buffered: Optional[bool] = None,
             raw: Optional[bool] = None,
             prepared: Optional[bool] = None,
-            dictionary: Optional[bool] = None,
-            named_tuple: Optional[bool] = None
+            dictionary: Optional[bool] = None
     ) -> MySQLCursor:
         return self.client.cursor(
             buffered=buffered,
             raw=raw,
             prepared=prepared,
-            dictionary=dictionary,
-            named_tuple=named_tuple
+            dictionary=dictionary
         )
 
     def execute(
@@ -94,15 +108,13 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             buffered: Optional[bool] = None,
             raw: Optional[bool] = None,
             prepared: Optional[bool] = None,
-            dictionary: Optional[bool] = None,
-            named_tuple: Optional[bool] = None
+            dictionary: Optional[bool] = None
     ) -> MySQLCursor:
         cur = self.client.cursor(
             buffered=buffered,
             raw=raw,
             prepared=prepared,
-            dictionary=dictionary,
-            named_tuple=named_tuple
+            dictionary=dictionary
         )
         cur.execute(sql, params=params)
         return cur
@@ -132,12 +144,8 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             raise ValueError("Table should be given.")
 
         sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
-        cur = self.execute(sql, params=(table,))
-        try:
-            with cur:
-                return cur.fetchone()[0] == 1
-        finally:
-            self.commit()
+        with self.execute(sql, params=(table,)) as cur:
+            return cur.fetchone()[0] == 1
 
     def find(
             self,
@@ -154,14 +162,11 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         if where:
             sql += " WHERE " + where
         sql += ";"
-        cur = self.execute(sql, dictionary=True)
-        try:
+        with self.execute(sql, dictionary=True) as cur:
             for doc in cur:
                 yield doc
             ret = cur.close()
             return ret
-        finally:
-            self.commit()
 
     def insert(self, doc: Dict[str, Any], table: Optional[str] = None):
         if not table:
@@ -181,10 +186,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
 
         sql = f"INSERT INTO {table} ({fields}) VALUES ({placeholders});"
         cur = self.execute(sql, params=values)
-        try:
-            return cur.close()
-        finally:
-            self.commit()
+        return cur.close()
 
     # noinspection PyShadowingBuiltins
     def update(self, set: str, where: str, table: Optional[str] = None):
@@ -195,10 +197,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
 
         sql = f"UPDATE {table} SET {set} WHERE {where};"
         cur = self.execute(sql)
-        try:
-            return cur.close()
-        finally:
-            self.commit()
+        return cur.close()
 
     def delete(self, where: str, table: Optional[str] = None):
         if not table:
@@ -208,10 +207,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
 
         sql = f"DELETE FROM {table} WHERE {where};"
         cur = self.execute(sql)
-        try:
-            return cur.close()
-        finally:
-            self.commit()
+        return cur.close()
 
 
 class MySQLReader(DocReader):
@@ -242,11 +238,9 @@ class MySQLReader(DocReader):
 
     def _fetch_keys(self):
         sql = f"SELECT {self.key_field} FROM {self.table};"
-        with self.client:
-            with self.client.execute(sql) as cur:
-                key_list = [row[0] for row in tqdm(cur, leave=False)]
-            self.client.commit()
-            return key_list
+        with self.client.execute(sql) as cur, self.client:
+            key_list = [row[0] for row in tqdm(cur, leave=False)]
+        return key_list
 
     def __len__(self):
         return len(self.key_list)
@@ -255,9 +249,7 @@ class MySQLReader(DocReader):
         key = self.key_list[idx]
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
         with self.client.execute(sql, dictionary=True) as cur:
-            doc = cur.fetchone()
-            self.client.commit()
-            return doc
+            return cur.fetchone()
 
     def close(self):
         if hasattr(self, "client"):
@@ -269,9 +261,7 @@ class MySQLReader(DocReader):
     def read(self, key):
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
         with self.client.execute(sql, dictionary=True) as cur:
-            doc = cur.fetchone()
-            self.client.commit()
-            return doc
+            return cur.fetchone()
 
 
 class MySQLWriter(DocWriter):
@@ -315,16 +305,14 @@ class MySQLWriter(DocWriter):
         placeholders = ", ".join(placeholders)
 
         sql = f"INSERT INTO {self.table} ({fields}) VALUES ({placeholders});"
-        with self.client.execute(sql, params=values):
-            pass
-        self.client.commit()
+        cur = self.client.execute(sql, params=values)
+        return cur.close()
 
     def table_exists(self):
         if self._table_exists is None:
             sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
             with self.client.execute(sql, params=(self.table,)) as cur:
                 self._table_exists = cur.fetchone()[0] == 1
-            self.client.commit()
         return self._table_exists
 
     def create_table_from_doc(self, doc: Mapping[str, Any]):
@@ -349,9 +337,8 @@ class MySQLWriter(DocWriter):
             f"PRIMARY KEY (`id`)"
             f");"
         )
-        with self.client.execute(sql):
-            pass
-        self.client.commit()
+        cur = self.client.execute(sql)
+        return cur.close()
 
     def close(self):
         if hasattr(self, "client"):
