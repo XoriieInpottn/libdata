@@ -63,24 +63,31 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
     def _connect(self):
         client = self._conn_pool.get(self._conn_url)
         if client is None:
-            conn_url = URL.ensure_url(self._conn_url)
-            assert isinstance(conn_url.address, Address)
+            return self._create_connection()
+        elif not client.is_connected():
+            client.close()
+            return self._create_connection()
+        else:
+            return client
 
-            autocommit = True
-            if conn_url.parameters:
-                parameters = conn_url.parameters
-                if "autocommit" in parameters:
-                    autocommit = parameters["autocommit"] in {"True", "true", "1"}
+    def _create_connection(self):
+        conn_url = URL.ensure_url(self._conn_url)
+        assert isinstance(conn_url.address, Address)
 
-            client = MySQLConnection(
-                host=conn_url.address.host,
-                port=conn_url.address.port or 3306,
-                user=conn_url.username,
-                password=conn_url.password,
-                database=self.database,
-                autocommit=autocommit
-            )
-        return client
+        autocommit = True
+        if conn_url.parameters:
+            parameters = conn_url.parameters
+            if "autocommit" in parameters:
+                autocommit = parameters["autocommit"] in {"True", "true", "1"}
+
+        return MySQLConnection(
+            host=conn_url.address.host,
+            port=conn_url.address.port or 3306,
+            user=conn_url.username,
+            password=conn_url.password,
+            database=self.database,
+            autocommit=autocommit
+        )
 
     def _disconnect(self, client):
         client = self._conn_pool.put(self._conn_url, client)
@@ -144,7 +151,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             raise ValueError("Table should be given.")
 
         sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
-        with self.execute(sql, params=(table,)) as cur:
+        with self.execute(sql, params=(table,), buffered=True) as cur:
             return cur.fetchone()[0] == 1
 
     def find(
@@ -248,7 +255,7 @@ class MySQLReader(DocReader):
     def __getitem__(self, idx: int):
         key = self.key_list[idx]
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
-        with self.client.execute(sql, dictionary=True) as cur:
+        with self.client.execute(sql, dictionary=True, buffered=True) as cur:
             return cur.fetchone()
 
     def close(self):
@@ -260,7 +267,7 @@ class MySQLReader(DocReader):
 
     def read(self, key):
         sql = f"SELECT * FROM {self.table} WHERE {self.key_field}='{key}';"
-        with self.client.execute(sql, dictionary=True) as cur:
+        with self.client.execute(sql, dictionary=True, buffered=True) as cur:
             return cur.fetchone()
 
 
@@ -291,7 +298,7 @@ class MySQLWriter(DocWriter):
         self._table_exists = None
 
     def write(self, doc: Mapping[str, Any]):
-        if not self.table_exists():
+        if not self.client.table_exists(self.table):
             self.create_table_from_doc(doc)
 
         fields = []
@@ -307,13 +314,6 @@ class MySQLWriter(DocWriter):
         sql = f"INSERT INTO {self.table} ({fields}) VALUES ({placeholders});"
         cur = self.client.execute(sql, params=values)
         return cur.close()
-
-    def table_exists(self):
-        if self._table_exists is None:
-            sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = \"%s\";"
-            with self.client.execute(sql, params=(self.table,)) as cur:
-                self._table_exists = cur.fetchone()[0] == 1
-        return self._table_exists
 
     def create_table_from_doc(self, doc: Mapping[str, Any]):
         fields = []
