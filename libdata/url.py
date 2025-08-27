@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 
 from pydantic import BaseModel, Field
 
-RE_SCHEMA = re.compile("^(?P<value>[A-Za-z0-9]+)://")
+RE_SCHEME = re.compile("^(?P<value>[A-Za-z0-9+.]+)://")
 RE_AUTH = re.compile("(?P<value>[^@]+)@")
 RE_ADDRESS = re.compile("(?P<value>[^/?#]+)")
 RE_PATH = re.compile("(?P<value>/?[^?#]*)")
@@ -93,7 +93,7 @@ class URL(BaseModel):
         fragments = None
 
         pos = 0
-        if m := RE_SCHEMA.match(url_str, pos):
+        if m := RE_SCHEME.match(url_str, pos):
             scheme = m.group("value")
             pos = m.span()[1]
 
@@ -188,7 +188,7 @@ class URL(BaseModel):
         buffer = io.StringIO()
 
         if self.scheme:
-            buffer.write(quote(self.scheme, safe=""))
+            buffer.write(self.scheme)
             buffer.write("://")
 
         if self.username:
@@ -247,15 +247,22 @@ class URL(BaseModel):
                 f"Expect URL, str or bytes, got {type(url)}"
             )
 
-    def get_tokenized_path(self) -> List[str]:
-        return self.path.strip("/").split("/")
+    def split_scheme(self) -> List[str]:
+        if self.scheme:
+            return self.scheme.split("+")
+        return []
+
+    def split_path(self) -> List[str]:
+        if self.path:
+            return self.path.strip("/").split("/")
+        return []
 
     def get_database_and_table(self) -> Tuple[str, str]:
         database = None
         table = None
 
         if self.path:
-            path_list = self.get_tokenized_path()
+            path_list = self.split_path()
             if len(path_list) == 1:
                 database = path_list[0] or None
                 table = None
