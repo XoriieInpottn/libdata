@@ -123,7 +123,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
                 coll.insert_many(self.buffer)
                 self.buffer.clear()
 
-    def insert_many(self, docs: List[dict], flush: True):
+    def insert_many(self, docs: List[dict], flush: bool = True):
         coll = self.get_collection()
         self.buffer.extend(docs)
         if flush or len(self.buffer) > self.buffer_size:
@@ -142,11 +142,8 @@ class LazyMongoClient(LazyClient[MongoClient]):
         self._coll = None
         super().close()
 
-    def count(self) -> int:
-        return self.get_collection().count()
-
     def count_documents(self, query: Optional[Mapping[str, Any]] = None) -> int:
-        return self.get_collection().count_documents(query)
+        return self.get_collection().count_documents(query if query is not None else {})
 
     def distinct(self, key, query: Optional[Mapping[str, Any]] = None):
         return self.get_collection().distinct(key, query)
