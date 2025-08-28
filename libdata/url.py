@@ -97,6 +97,7 @@ class URL(BaseModel):
             scheme = m.group("value")
             pos = m.span()[1]
 
+        if scheme and scheme not in {"file", "local"}:
             if m := RE_AUTH.match(url_str, pos):
                 auth = m.group("value")
                 pos = m.span()[1]
