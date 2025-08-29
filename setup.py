@@ -12,7 +12,7 @@ if __name__ == "__main__":
         packages=[
             "libdata",
         ],
-        version="0.25.7",
+        version="1.0",
         description="Unified interface to access data.",
         long_description_content_type="text/markdown",
         long_description=long_description,
@@ -36,5 +36,7 @@ if __name__ == "__main__":
             "pymilvus",
             "redis",
             "mysql-connector-python",
+            "fsspec",
+            "s3fs"
         ]
     )

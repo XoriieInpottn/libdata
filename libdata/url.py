@@ -154,6 +154,9 @@ class URL(BaseModel):
                 address_list.append(Address(host=host, port=port))
             address = address_list[0] if len(address_list) == 1 else address_list
 
+        if path:
+            path = unquote(path)
+
         parameters = {}
         if params:
             for p in params.split("&"):
