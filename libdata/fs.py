@@ -8,6 +8,10 @@ __all__ = [
     "open",
     "rm",
     "mv",
+    "read_bytes",
+    "write_bytes",
+    "read_text",
+    "write_text",
 ]
 
 import json
@@ -145,3 +149,27 @@ def rm(url, recursive=False, path: Optional[str] = None):
 
 def mv(url, path1: str, path2: str, recursive=False):
     return LazyFSClient(url).mv(path1=path1, path2=path2, recursive=recursive)
+
+
+def read_bytes(url: Union[str, URL]) -> bytes:
+    client = LazyFSClient.from_url(url)
+    with client.open(mode="rb") as f, client:
+        return f.read()
+
+
+def write_bytes(url: Union[str, URL], data: bytes):
+    client = LazyFSClient.from_url(url)
+    with client.open(mode="wb") as f, client:
+        return f.write(data)
+
+
+def read_text(url: Union[str, URL]) -> bytes:
+    client = LazyFSClient.from_url(url)
+    with client.open(mode="rt") as f, client:
+        return f.read()
+
+
+def write_text(url: Union[str, URL], content: str):
+    client = LazyFSClient.from_url(url)
+    with client.open(mode="wt") as f, client:
+        return f.write(content)
