@@ -157,9 +157,10 @@ def read_bytes(url: Union[str, URL]) -> bytes:
         return f.read()
 
 
-def write_bytes(url: Union[str, URL], data: bytes):
+def write_bytes(url: Union[str, URL], data: bytes, append: bool = False):
     client = LazyFSClient.from_url(url)
-    with client.open(mode="wb") as f, client:
+    mode = "ab" if append else "wb"
+    with client.open(mode=mode) as f, client:
         return f.write(data)
 
 
@@ -169,7 +170,8 @@ def read_text(url: Union[str, URL]) -> bytes:
         return f.read()
 
 
-def write_text(url: Union[str, URL], content: str):
+def write_text(url: Union[str, URL], content: str, append: bool = False):
     client = LazyFSClient.from_url(url)
-    with client.open(mode="wt") as f, client:
+    mode = "at" if append else "wt"
+    with client.open(mode=mode) as f, client:
         return f.write(content)
