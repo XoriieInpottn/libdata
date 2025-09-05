@@ -66,6 +66,18 @@ milvus://username:password@host:port/database/collection
 - Unified URL format for Milvus vector databases.
 - `database` and `collection` may also be specified later.
 
+#### Redis
+
+```
+redis://username:password@host1:port1,host2:port2,host3:port3/database?service_name=xxx_service
+```
+
+- `username` is usually set as "default".
+- The above URL is Sentinel mode, in which multiple host:port pairs are defined.
+- `database` may leave empty or set as "0".
+
+Example: [Redis example code](https://github.com/XoriieInpottn/libdata/blob/main/example/redis.py)
+
 ------
 
 ### File Systems
@@ -190,6 +202,20 @@ milvus://username:password@host:port/database/collection
 
 - 用于向量数据库 Milvus 的统一 URL。
 - `database` 和 `collection` 可在后续操作时指定。
+
+------
+
+#### Redis
+
+```
+redis://username:password@host1:port1,host2:port2,host3:port3/database?service_name=xxx_service
+```
+
+- `username` 通常设为 `"default"`。
+- 上述 URL 表示 **哨兵模式 (Sentinel mode)**，其中可以定义多个 `host:port` 对。
+- `database` 可以留空，或设为 `"0"`。
+
+使用例子：[Redis 示例代码](https://github.com/XoriieInpottn/libdata/blob/main/example/redis.py)
 
 ------
 
