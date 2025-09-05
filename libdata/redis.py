@@ -136,6 +136,9 @@ class LazyRedisClient(StringProxy, ListProxy, HashProxy, ABC):
     def keys(self, pattern: str = "*"):
         return self.get_client(read=True).keys(pattern)
 
+    def scan_iter(self, pattern: str = "*", count: Optional[int] = None):
+        return self.get_client(read=True).scan_iter(pattern, count=count)
+
     def exists(self, *names: str):
         return self.get_client(read=True).exists(*names)
 
