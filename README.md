@@ -5,6 +5,12 @@
 `libdata` provides a **unified URL syntax** to access different types of resources (databases, file systems, remote services, etc.).
  This allows you to work with heterogeneous data sources using a single, consistent style.
 
+You can install libdata by:
+
+```
+pip install libdata
+```
+
 ------
 
 ### URL Syntax Rules
@@ -141,6 +147,12 @@ https://host:port/path/of/service
 
 `libdata` 通过 **统一的 URL 语法** 来访问不同类型的资源（数据库、文件系统、远程服务等）。
  这样，你只需要记住一种 URL 风格，就能操作多种异构数据源。
+
+可通过以下方式进行安装：
+
+```
+pip install libdata
+```
 
 ------
 
