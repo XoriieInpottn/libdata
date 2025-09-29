@@ -239,6 +239,13 @@ class MySQLReader(DocReader):
         self.client = LazyMySQLClient.from_url(url)
         _, self.table = url.get_database_and_table()
 
+        if url.parameters:
+            params = url.parameters
+            if "key_field" in params:
+                key_field = params["key_field"]
+            elif "keyField" in params:
+                key_field = params["keyField"]
+
         self.key_field = key_field
 
         self.key_list = self._fetch_keys()
