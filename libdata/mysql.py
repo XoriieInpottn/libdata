@@ -175,7 +175,13 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             ret = cur.close()
             return ret
 
-    def insert(self, doc: Dict[str, Any], table: Optional[str] = None):
+    def insert(self, doc_or_docs: dict | list[dict], table: Optional[str] = None):
+        if isinstance(doc_or_docs, list):
+            return self.insert_many(doc_or_docs, table)
+        else:
+            return self.insert_one(doc_or_docs, table)
+
+    def insert_one(self, doc: Dict[str, Any], table: Optional[str] = None):
         if not table:
             table = self.table
         if not table:
@@ -193,6 +199,31 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
 
         sql = f"INSERT INTO {table} ({fields}) VALUES ({placeholders});"
         cur = self.execute(sql, params=values)
+        return cur.close()
+
+    def insert_many(self, docs: List[Dict[str, Any]], table: Optional[str] = None):
+        if not docs:
+            return True
+
+        if not table:
+            table = self.table
+        if not table:
+            raise ValueError("Table should be given.")
+
+        fields = list(docs[0].keys())
+        field_list = ", ".join(fields)
+
+        # (%s, %s, ...), (%s, %s, ...) ...
+        placeholders_per_row = "(" + ", ".join(["%s"] * len(fields)) + ")"
+        placeholders_all = ", ".join([placeholders_per_row] * len(docs))
+
+        sql = f"INSERT INTO {table} ({field_list}) VALUES {placeholders_all};"
+
+        params = []
+        for doc in docs:
+            params.extend([doc.get(f) for f in fields])
+
+        cur = self.execute(sql, params=params)
         return cur.close()
 
     # noinspection PyShadowingBuiltins
