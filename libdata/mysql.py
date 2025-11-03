@@ -33,6 +33,9 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
     def __init__(
             self,
             url: Union[str, URL],
+            charset: str | None = None,
+            autocommit: bool | None = None,
+            connect_timeout: int | None = None,
             connection_pool: Optional[ConnectionPool] = None
     ):
         super().__init__()
@@ -41,19 +44,36 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         if url.scheme != "mysql":
             raise ValueError("scheme should be `mysql`.")
 
-        parameters = None
-        allowed_params = {"autocommit"}
-        if url.parameters:
-            parameters = {
-                k: v for k, v in url.parameters.items()
-                if k in allowed_params
-            }
+        input_params = url.parameters or {}
+        valid_params = {}
+
+        charset = (
+            charset if charset is not None else
+            input_params.get("charset")
+        )
+        if charset is not None:
+            valid_params["charset"] = charset
+
+        autocommit = (
+            str(autocommit).lower()
+            if autocommit is not None else
+            input_params.get("autocommit", "true")
+        )
+        valid_params["autocommit"] = autocommit
+
+        connect_timeout = (
+            str(connect_timeout) if connect_timeout is not None else
+            input_params.get("connect_timeout")
+        )
+        if connect_timeout is not None:
+            valid_params["connect_timeout"] = connect_timeout
+
         self._conn_url = URL(
             scheme="mysql",
             username=url.username,
             password=url.password,
             address=url.address,
-            parameters=parameters
+            parameters=valid_params
         ).to_string()
 
         self.database, self.table = url.get_database_and_table()
@@ -74,11 +94,11 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         conn_url = URL.ensure_url(self._conn_url)
         assert isinstance(conn_url.address, Address)
 
-        autocommit = True
-        if conn_url.parameters:
-            parameters = conn_url.parameters
-            if "autocommit" in parameters:
-                autocommit = parameters["autocommit"] in {"True", "true", "1"}
+        kwargs: dict[str, Any] = conn_url.parameters or {}
+        if "autocommit" in kwargs:
+            kwargs["autocommit"] = kwargs["autocommit"].lower() in {"true", "1"}
+        if "connect_timeout" in kwargs:
+            kwargs["connect_timeout"] = float(kwargs["connect_timeout"])
 
         return MySQLConnection(
             host=conn_url.address.host,
@@ -86,7 +106,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
             user=conn_url.username,
             password=conn_url.password,
             database=self.database,
-            autocommit=autocommit
+            **kwargs
         )
 
     def _disconnect(self, client):
@@ -246,6 +266,73 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         sql = f"DELETE FROM {table} WHERE {where};"
         cur = self.execute(sql)
         return cur.close()
+
+
+class MySQLIterator:
+
+    @classmethod
+    def from_url(cls, url: Union[str, URL]):
+        url = URL.ensure_url(url)
+        if url.scheme != "mysql":
+            raise ValueError(f"Unsupported scheme '{url.scheme}'.")
+        return cls(url)
+
+    def __init__(self, url: Union[str, URL]):
+        url = URL.ensure_url(url)
+        self.client = LazyMySQLClient.from_url(url)
+        _, self.table = url.get_database_and_table()
+        self._cursor = None
+        self._exhausted = False
+        self._count = None
+
+    def __len__(self):
+        if self._count is None:
+            sql = f"SELECT COUNT(*) FROM {self.table};"
+            with self.client.execute(sql) as cur:
+                self._count = cur.fetchone()[0]
+        return self._count
+
+    def __iter__(self):
+        # 初始化游标
+        if self._cursor is None:
+            sql = f"SELECT * FROM {self.table};"
+            self._cursor = self.client.execute(sql, dictionary=True)
+        return self
+
+    def __next__(self):
+        if self._exhausted:
+            raise StopIteration
+
+        row = self._cursor.fetchone()
+        if row is None:
+            self._exhausted = True
+            self.close()
+            raise StopIteration
+        return row
+
+    def close(self):
+        if getattr(self, "_cursor", None) is not None:
+            try:
+                self._cursor.close()
+            except Exception:
+                pass
+            self._cursor = None
+
+        if getattr(self, "client", None) is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client = None
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
 
 class MySQLReader(DocReader):
