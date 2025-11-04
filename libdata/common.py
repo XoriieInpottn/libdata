@@ -16,6 +16,56 @@ from typing import Generic, Optional, TypeVar, Union
 
 from libdata.url import URL
 
+ITERATORS = {
+    "mongo": "libdata.mongodb.MongoIterator",
+    "mongodb": "libdata.mongodb.MongoIterator",
+    "mysql": "libdata.mysql.MySQLIterator",
+}
+
+
+class DocIterator(abc.ABC):
+    """Abstract class for document iterator."""
+
+    @classmethod
+    def from_url(cls, url: Union[str, URL]) -> "DocIterator":
+        url = URL.ensure_url(url)
+
+        if not (name := ITERATORS.get(url.scheme)):
+            raise ValueError(f"Unsupported type \"{url.scheme}\".")
+
+        try:
+            module, reader_class = name.rsplit(".", 1)
+            reader_class = getattr(importlib.import_module(module), reader_class)
+        except ValueError or ModuleNotFoundError or AttributeError:
+            raise RuntimeError(f"Failed to import `{name}`.")
+
+        assert isinstance(reader_class, type) and issubclass(reader_class, DocIterator)
+        return reader_class.from_url(url)
+
+    def __init__(self):
+        self.fields: list[str] | None = None
+
+    @abc.abstractmethod
+    def __len__(self):
+        pass
+
+    @abc.abstractmethod
+    def __iter__(self):
+        pass
+
+    @abc.abstractmethod
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        self.close()
+
 
 class DocReader(abc.ABC):
     """Abstract class for document readers."""

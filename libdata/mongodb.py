@@ -7,6 +7,7 @@ __all__ = [
     "MongoWriter",
 ]
 
+import sys
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from pymongo import MongoClient
@@ -17,7 +18,7 @@ from pymongo.database import Database
 from pymongo.results import DeleteResult, UpdateResult
 from tqdm import tqdm
 
-from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient
+from libdata.common import ConnectionPool, DocIterator, DocReader, DocWriter, LazyClient
 from libdata.url import URL
 
 
@@ -208,6 +209,72 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
     def start_session(self) -> ClientSession:
         return self.client.start_session()
+
+
+class MongoIterator(DocIterator):
+    """Iterator for MongoDB collections."""
+
+    @classmethod
+    def from_url(cls, url: Union[str, URL], auth_db: str = "admin"):
+        url = URL.ensure_url(url)
+        if url.scheme not in {"mongodb", "mongo"}:
+            raise ValueError(f"Unsupported scheme '{url.scheme}'.")
+        return cls(url, auth_db=auth_db)
+
+    def __init__(self, url: Union[str, URL], auth_db: str = "admin"):
+        super().__init__()
+
+        url = URL.ensure_url(url)
+        self.client = LazyMongoClient(url, auth_source=auth_db)
+
+        self._cursor = None
+        self._exhausted = False
+        self._count = None
+
+    def __len__(self):
+        if self._count is None:
+            self._count = self.client.count_documents()
+        return self._count
+
+    def __iter__(self):
+        if self._cursor is None:
+            self._cursor = self.client.find(
+                projection={f: 1 for f in self.fields} if self.fields else None
+            )
+            self._exhausted = False
+        return self
+
+    def __next__(self):
+        if self._exhausted:
+            raise StopIteration()
+
+        try:
+            doc = next(self._cursor)
+            return doc
+        except StopIteration:
+            self._exhausted = True
+            self.close()
+            raise
+        except Exception as e:
+            print(f"Error reading from MongoDB: {e}", file=sys.stderr)
+            self._exhausted = True
+            self.close()
+            raise StopIteration()
+
+    def close(self):
+        if getattr(self, "_cursor", None) is not None:
+            try:
+                self._cursor.close()
+            except Exception as e:
+                print(e, file=sys.stderr)
+            self._cursor = None
+
+        if getattr(self, "client", None) is not None:
+            try:
+                self.client.close()
+            except Exception as e:
+                print(e, file=sys.stderr)
+            self.client = None
 
 
 class MongoReader(DocReader):

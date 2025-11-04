@@ -7,6 +7,7 @@ __all__ = [
     "MySQLWriter",
 ]
 
+import sys
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Union
 
@@ -14,7 +15,7 @@ from mysql.connector import MySQLConnection
 from mysql.connector.cursor import MySQLCursor
 from tqdm import tqdm
 
-from libdata.common import ConnectionPool, DocReader, DocWriter, LazyClient
+from libdata.common import ConnectionPool, DocIterator, DocReader, DocWriter, LazyClient
 from libdata.url import Address, URL
 
 
@@ -268,7 +269,7 @@ class LazyMySQLClient(LazyClient[MySQLConnection]):
         return cur.close()
 
 
-class MySQLIterator:
+class MySQLIterator(DocIterator):
 
     @classmethod
     def from_url(cls, url: Union[str, URL]):
@@ -278,9 +279,12 @@ class MySQLIterator:
         return cls(url)
 
     def __init__(self, url: Union[str, URL]):
+        super().__init__()
+
         url = URL.ensure_url(url)
         self.client = LazyMySQLClient.from_url(url)
         _, self.table = url.get_database_and_table()
+
         self._cursor = None
         self._exhausted = False
         self._count = None
@@ -293,46 +297,38 @@ class MySQLIterator:
         return self._count
 
     def __iter__(self):
-        # 初始化游标
         if self._cursor is None:
-            sql = f"SELECT * FROM {self.table};"
+            proj = ",".join(self.fields) if self.fields else "*"
+            sql = f"SELECT {proj} FROM {self.table};"
             self._cursor = self.client.execute(sql, dictionary=True)
+            self._exhausted = False
         return self
 
     def __next__(self):
         if self._exhausted:
-            raise StopIteration
+            raise StopIteration()
 
-        row = self._cursor.fetchone()
-        if row is None:
+        doc = self._cursor.fetchone()
+        if doc is None:
             self._exhausted = True
             self.close()
-            raise StopIteration
-        return row
+            raise StopIteration()
+        return doc
 
     def close(self):
         if getattr(self, "_cursor", None) is not None:
             try:
                 self._cursor.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(e, file=sys.stderr)
             self._cursor = None
 
         if getattr(self, "client", None) is not None:
             try:
                 self.client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(e, file=sys.stderr)
             self.client = None
-
-    def __del__(self):
-        self.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
 
 
 class MySQLReader(DocReader):
