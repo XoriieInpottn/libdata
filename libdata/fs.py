@@ -14,7 +14,6 @@ __all__ = [
     "write_text",
 ]
 
-import json
 from typing import Optional, Union
 
 import fsspec
@@ -40,19 +39,24 @@ def filesystem(url: Union[str, URL]) -> AbstractFileSystem:
     kwargs = {}
     if url.parameters:
         for name, value in url.parameters.items():
-            try:
-                value = json.loads(value)
-            except json.JSONDecodeError:
-                pass
             kwargs[name] = value
     if url.address and backend_protocol:
         kwargs["endpoint_url"] = URL(scheme=backend_protocol, address=url.address).to_string()
+
+    config_kwargs = {}
+    if "signature_version" in kwargs:
+        config_kwargs["signature_version"] = kwargs["signature_version"]
+        del kwargs["signature_version"]
+
+    if "verify" in kwargs:
+        kwargs["verify"] = kwargs["verify"].lower() in {"true", "1"}
 
     return fsspec.filesystem(
         fs_protocol,
         key=key,
         secret=secret,
         client_kwargs=kwargs,
+        config_kwargs=config_kwargs
     )
 
 
