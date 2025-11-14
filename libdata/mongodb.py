@@ -8,8 +8,9 @@ __all__ = [
 ]
 
 import sys
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Generator, List, Mapping, Optional, Tuple, Union
 
+from pydantic import BaseModel
 from pymongo import MongoClient
 from pymongo.client_session import ClientSession
 from pymongo.collection import Collection
@@ -96,7 +97,10 @@ class LazyMongoClient(LazyClient[MongoClient]):
             self._db = self.client.get_database(self.database)
         return self._db
 
-    def get_collection(self) -> Collection:
+    def get_collection(self, collection: str | None = None) -> Collection:
+        if collection:
+            return self.get_database().get_collection(collection)
+
         if self._coll is None:
             if not self.collection:
                 raise RuntimeError("Collection name should be given.")
@@ -105,31 +109,24 @@ class LazyMongoClient(LazyClient[MongoClient]):
 
     def insert(self, docs: Union[dict, List[dict]], flush=True):
         if isinstance(docs, List):
-            return self.insert_many(docs, flush)
+            self.buffer.extend(docs)
         else:
-            return self.insert_one(docs, flush)
+            self.buffer.append(docs)
 
-    def insert_one(self, doc: dict, flush=True):
-        coll = self.get_collection()
-        if flush:
-            if len(self.buffer) > 0:
-                self.buffer.append(doc)
-                coll.insert_many(self.buffer)
-                self.buffer.clear()
-            else:
-                coll.insert_one(doc)
-        else:
-            self.buffer.append(doc)
-            if len(self.buffer) > self.buffer_size:
-                coll.insert_many(self.buffer)
-                self.buffer.clear()
-
-    def insert_many(self, docs: List[dict], flush: bool = True):
-        coll = self.get_collection()
-        self.buffer.extend(docs)
-        if flush or len(self.buffer) > self.buffer_size:
+        if len(self.buffer) > self.buffer_size:
+            coll = self.get_collection()
             coll.insert_many(self.buffer)
             self.buffer.clear()
+        elif flush:
+            self.flush()
+
+    def insert_one(self, doc: dict, collection: str | None = None):
+        coll = self.get_collection(collection)
+        return coll.insert_one(doc)
+
+    def insert_many(self, docs: List[dict], collection: str | None = None):
+        coll = self.get_collection(collection)
+        return coll.insert_many(docs)
 
     def flush(self):
         if len(self.buffer) != 0:
@@ -143,53 +140,86 @@ class LazyMongoClient(LazyClient[MongoClient]):
         self._coll = None
         super().close()
 
-    def count_documents(self, query: Optional[Mapping[str, Any]] = None) -> int:
-        return self.get_collection().count_documents(query if query is not None else {})
+    def count_documents(self, query: Optional[Mapping[str, Any]] = None, collection: str | None = None) -> int:
+        coll = self.get_collection(collection)
+        return coll.count_documents(query if query is not None else {})
 
-    def distinct(self, key, query: Optional[Mapping[str, Any]] = None):
-        return self.get_collection().distinct(key, query)
+    def distinct(self, key, query: Optional[Mapping[str, Any]] = None, collection: str | None = None):
+        return self.get_collection(collection).distinct(key, query)
 
     def find(
             self,
             query: Optional[Mapping[str, Any]] = None,
-            projection: Optional[Mapping[str, Any]] = None,
+            projection: Optional[Mapping[str, Any] | type[BaseModel]] = None,
             skip: Optional[int] = 0,
             limit: Optional[int] = 0,
-            sort: Optional[List[Tuple[str, int]]] = None
-    ) -> Cursor:
-        return self.get_collection().find(
-            filter=query,
-            projection=projection,
-            skip=skip,
-            limit=limit,
-            sort=sort
-        )
+            sort: Optional[List[Tuple[str, int]]] = None,
+            collection: str | None = None
+    ) -> Cursor | Generator[BaseModel, None, None]:
+        coll = self.get_collection() if collection is None else self.get_database()[collection]
+        if isinstance(projection, type) and issubclass(projection, BaseModel):
+            pipeline = []
+            if query:
+                pipeline.append({"$match": query})
+            pipeline.append({"$project": self._create_projection(projection)})
+            if sort:
+                pipeline.append({"$sort": dict(sort)})
+            if skip:
+                pipeline.append({"$skip": skip})
+            if limit:
+                pipeline.append({"$limit": limit})
+
+            cur = coll.aggregate(pipeline)
+
+            def _iter_objs():
+                with cur:
+                    for doc in cur:
+                        yield projection.model_validate(doc)
+
+            return _iter_objs()
+        else:
+            return coll.find(
+                filter=query,
+                projection=projection,
+                skip=skip,
+                limit=limit,
+                sort=sort
+            )
 
     def find_one(
             self,
             query: Optional[Mapping[str, Any]] = None,
-            projection: Optional[Mapping[str, Any]] = None,
-            sort: Optional[List[Tuple[str, int]]] = None
-    ) -> Optional[Dict]:
-        return self.get_collection().find_one(
-            filter=query,
-            projection=projection,
-            sort=sort
-        )
+            projection: Optional[Mapping[str, Any] | type[BaseModel]] = None,
+            sort: Optional[List[Tuple[str, int]]] = None,
+            collection: str | None = None
+    ) -> dict | BaseModel | None:
+        for result in self.find(query, projection, limit=1, sort=sort, collection=collection):
+            return result
+        return None
 
-    def delete_one(self, query: Mapping[str, Any]) -> DeleteResult:
-        return self.get_collection().delete_one(query)
+    @staticmethod
+    def _create_projection(model_type: type[BaseModel]) -> dict:
+        result = {}
+        for field_name, field_info in model_type.model_fields.items():
+            extra = field_info.json_schema_extra or {}
+            original_name = extra.get("original") or extra.get("origin") or extra.get("raw")
+            result[field_name] = ("$" + original_name) if original_name else 1
+        return result
 
-    def delete_many(self, query: Mapping[str, Any]) -> DeleteResult:
-        return self.get_collection().delete_many(query)
+    def delete_one(self, query: Mapping[str, Any], collection: str | None = None) -> DeleteResult:
+        return self.get_collection(collection).delete_one(query)
+
+    def delete_many(self, query: Mapping[str, Any], collection: str | None = None) -> DeleteResult:
+        return self.get_collection(collection).delete_many(query)
 
     def update_one(
             self,
             query: Mapping[str, Any],
             update: Mapping[str, Any],
             upsert: bool = False,
+            collection: str | None = None
     ) -> UpdateResult:
-        return self.get_collection().update_one(
+        return self.get_collection(collection).update_one(
             filter=query,
             update=update,
             upsert=upsert
@@ -200,8 +230,9 @@ class LazyMongoClient(LazyClient[MongoClient]):
             query: Mapping[str, Any],
             update: Mapping[str, Any],
             upsert: bool = False,
+            collection: str | None = None
     ) -> UpdateResult:
-        return self.get_collection().update_many(
+        return self.get_collection(collection).update_many(
             filter=query,
             update=update,
             upsert=upsert
@@ -359,7 +390,7 @@ class MongoWriter(DocWriter):
         )
 
     def write(self, doc):
-        return self.client.insert_one(doc, flush=False)
+        return self.client.insert(doc, flush=False)
 
     def flush(self):
         return self.client.flush()
