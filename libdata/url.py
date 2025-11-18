@@ -8,10 +8,16 @@ __all__ = [
 
 import io
 import re
-from typing import Dict, List, Optional, Tuple, Union
-from urllib.parse import quote, unquote
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
+from typing import Union
+from urllib.parse import quote
+from urllib.parse import unquote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from pydantic import Field
 
 RE_SCHEME = re.compile("^(?P<value>[A-Za-z0-9+.]+)://")
 RE_AUTH = re.compile("(?P<value>[^@]+)@")
@@ -245,11 +251,6 @@ class URL(BaseModel):
             return URL.from_string(url)
         elif isinstance(url, bytes):
             return URL.from_string(url.decode())
-        else:
-            raise TypeError(
-                f"Invalid URL type. "
-                f"Expect URL, str or bytes, got {type(url)}"
-            )
 
     def split_scheme(self) -> List[str]:
         if self.scheme:
@@ -295,3 +296,47 @@ class URL(BaseModel):
         else:
             self.path = path
         return self
+
+    def __add__(self, address: str):
+        assert isinstance(address, str)
+
+        m = RE_ADDRESS.match(address)
+        if not m:
+            raise ValueError(f"Invalid address `{address}`.")
+
+        address = m.group("value")
+        address_list = []
+        for a in address.split(","):
+            i = a.find(":")
+            if i > 0:
+                host = unquote(a[:i])
+                port = int(a[i + 1:])
+            else:
+                host = unquote(a)
+                port = None
+            address_list.append(Address(host=host, port=port))
+
+        if self.address is None:
+            address = address_list[0] if len(address_list) == 1 else address_list
+        elif isinstance(self.address, Address):
+            address = [self.address, *address_list]
+        elif isinstance(self.address, list):
+            address = self.address + address_list
+
+        return self.model_copy(update={"address": address}, deep=True)
+
+    def __truediv__(self, path: str):
+        assert isinstance(path, str)
+
+        if self.path:
+            path = self.path.rstrip("/") + "/" + path.lstrip("/")
+
+        return self.model_copy(update={"path": path}, deep=True)
+
+    def __rtruediv__(self, path: str):
+        assert isinstance(path, str)
+
+        if self.path:
+            path = "/" + path.strip() + "/" + self.path.lstrip("/")
+
+        return self.model_copy(update={"path": path}, deep=True)

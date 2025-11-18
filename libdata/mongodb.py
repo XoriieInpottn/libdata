@@ -161,7 +161,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
             pipeline = []
             if query:
                 pipeline.append({"$match": query})
-            pipeline.append({"$project": self._create_projection(projection)})
+            pipeline.append({"$project": self.create_projection(projection)})
             if sort:
                 pipeline.append({"$sort": dict(sort)})
             if skip:
@@ -198,7 +198,7 @@ class LazyMongoClient(LazyClient[MongoClient]):
         return None
 
     @staticmethod
-    def _create_projection(model_type: type[BaseModel]) -> dict:
+    def create_projection(model_type: type[BaseModel]) -> dict:
         result = {}
         for field_name, field_info in model_type.model_fields.items():
             extra = field_info.json_schema_extra or {}
